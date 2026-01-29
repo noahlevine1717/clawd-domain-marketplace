@@ -142,10 +142,33 @@ async def get_domain(domain: str) -> Optional[dict]:
 
 
 async def get_all_domains() -> list[dict]:
-    """Get all registered domains."""
+    """Get all registered domains. DEPRECATED - use get_domains_by_wallet instead."""
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute("SELECT * FROM domains ORDER BY registered_at DESC") as cursor:
+            rows = await cursor.fetchall()
+            domains = []
+            for row in rows:
+                data = dict(row)
+                data["domain_name"] = data.pop("domain")
+                data["nameservers"] = json.loads(data["nameservers"])
+                if data["registrant"]:
+                    data["registrant"] = json.loads(data["registrant"])
+                domains.append(data)
+            return domains
+
+
+async def get_domains_by_wallet(wallet_address: str) -> list[dict]:
+    """Get all domains owned by a specific wallet address.
+
+    This ensures users can only see their own domains.
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM domains WHERE LOWER(owner_wallet) = LOWER(?) ORDER BY registered_at DESC",
+            (wallet_address,)
+        ) as cursor:
             rows = await cursor.fetchall()
             domains = []
             for row in rows:

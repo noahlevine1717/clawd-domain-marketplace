@@ -85,10 +85,18 @@ const TOOLS: Tool[] = [
   },
   {
     name: "clawd_domain_list",
-    description: "List all domains registered through Clawd Domain Marketplace.",
+    description:
+      "List domains YOU own that were registered through Clawd Domain Marketplace. " +
+      "Requires your wallet address. Each wallet only sees its own domains.",
     inputSchema: {
       type: "object" as const,
-      properties: {},
+      properties: {
+        wallet: {
+          type: "string",
+          description: "Your wallet address (only shows domains you own)",
+        },
+      },
+      required: ["wallet"],
     },
   },
   // DNS Management Tools
@@ -390,10 +398,11 @@ async function handleDomainConfirm(args: {
   }
 }
 
-async function handleDomainList(): Promise<string> {
-  const result = await callBackend("/domains", "GET");
+async function handleDomainList(args: { wallet: string }): Promise<string> {
+  const result = await callBackend(`/domains?wallet=${encodeURIComponent(args.wallet)}`, "GET");
 
   const data = result as {
+    wallet: string;
     domains: Array<{
       domain_name: string;
       expires_at: string;
@@ -405,10 +414,11 @@ async function handleDomainList(): Promise<string> {
   };
 
   if (data.total === 0) {
-    return "## Your Domains\n\nNo domains registered yet. Use `clawd_domain_search` to find a domain!";
+    return `## Your Domains\n\n**Wallet:** \`${args.wallet}\`\n\nNo domains registered with this wallet yet. Use \`clawd_domain_search\` to find a domain!`;
   }
 
   let output = `## Your Domains (${data.total})\n\n`;
+  output += `**Wallet:** \`${args.wallet}\`\n\n`;
 
   if (data.mock_mode) {
     output += `⚠️ **Mock Mode** - Using simulated data\n\n`;
@@ -420,6 +430,8 @@ async function handleDomainList(): Promise<string> {
   for (const d of data.domains) {
     output += `| ${d.domain_name} | ${d.expires_at} | ${d.nameservers[0]} |\n`;
   }
+
+  output += `\n*Only domains owned by this wallet are shown.*`;
 
   return output;
 }
@@ -630,7 +642,7 @@ async function main() {
           break;
 
         case "clawd_domain_list":
-          result = await handleDomainList();
+          result = await handleDomainList(args as { wallet: string });
           break;
 
         // DNS Management

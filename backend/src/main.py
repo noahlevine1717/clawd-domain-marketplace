@@ -548,25 +548,42 @@ async def confirm_purchase(req: ConfirmRequest):
         )
 
 
-# List domains
+# List domains for a specific wallet
 @app.get("/domains")
-async def list_domains():
-    """List all registered domains."""
-    domains = await db.get_all_domains()
+async def list_domains(wallet: str):
+    """List domains owned by a specific wallet address.
+
+    Each wallet can only see their own domains - wallet address acts as an API key.
+    """
+    wallet = validate_wallet_address(wallet)
+    domains = await db.get_domains_by_wallet(wallet)
     return {
+        "wallet": wallet,
         "domains": domains,
         "total": len(domains),
         "mock_mode": config.MOCK_MODE,
     }
 
 
-# Get purchase status
+# Get purchase status (requires wallet that initiated the purchase)
 @app.get("/purchase/{purchase_id}")
-async def get_purchase(purchase_id: str):
-    """Get status of a purchase."""
+async def get_purchase(purchase_id: str, wallet: str):
+    """Get status of a purchase.
+
+    Only the wallet that initiated the purchase (payer) can view its status.
+    """
+    wallet = validate_wallet_address(wallet)
     purchase = await db.get_purchase(purchase_id)
     if not purchase:
         raise HTTPException(404, "Purchase not found")
+
+    # Verify ownership - payer wallet must match
+    payer = purchase.get("payer", "").lower()
+    # For pending purchases, we don't have a payer yet - allow access by purchase_id only
+    # This is safe because purchase_id is a random UUID
+    if payer and payer != wallet.lower():
+        raise HTTPException(403, "You don't own this purchase")
+
     # Don't expose internal fields
     safe_purchase = {
         "id": purchase["id"],
