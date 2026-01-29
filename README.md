@@ -1,6 +1,6 @@
 # Clawd Domain Marketplace
 
-A CLI-native domain registration marketplace that enables purchasing domains with USDC cryptocurrency using the x402 payment protocol. Built for AI agents and developers who want programmatic domain management.
+A CLI-native domain registration marketplace that enables purchasing domains with USDC using the x402 payment protocol. Built for AI agents and developers who want programmatic domain management.
 
 ## Features
 
