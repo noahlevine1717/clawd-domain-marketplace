@@ -411,10 +411,38 @@ docker run -p 8402:8402 --env-file .env clawd-backend
 
 ## Security
 
+### Wallet-Based Multi-Tenancy
+
+Each user's wallet address acts as their unique identifier (like an API key):
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    User Isolation Model                      │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  Wallet A (0x123...)          Wallet B (0x456...)           │
+│  ├── myproject.xyz            ├── coolapp.dev               │
+│  ├── mysite.com               └── example.org               │
+│  └── DNS records...               └── DNS records...        │
+│                                                              │
+│  ✅ Wallet A can only see/manage Wallet A's domains         │
+│  ✅ Wallet B can only see/manage Wallet B's domains         │
+│  ❌ Wallets cannot see or access each other's domains       │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Key points:**
+- Domains are owned by the wallet that paid for them (via x402)
+- All domain/DNS operations require the owning wallet address
+- Users cannot list, view, or manage other users' domains
+- No shared state between different wallet users
+
 ### Built-in Protections
 
 | Protection | Description |
 |------------|-------------|
+| **Wallet Isolation** | Each wallet only sees its own domains |
 | **Rate Limiting** | 20/min search, 10/min purchase, 30/min DNS |
 | **CORS** | Specific origins only (no wildcard in production) |
 | **Input Validation** | Strict Pydantic validation on all inputs |
