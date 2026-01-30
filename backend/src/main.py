@@ -346,8 +346,38 @@ async def x402_payment(purchase_id: str, request: Request):
 
         payer = params.get("payer", "unknown")
         signature = params.get("signature", "")
+        tx_hash = params.get("tx_hash", "")
 
-        await db.update_purchase(purchase_id, {"payer": payer, "signature": signature})
+        # CRITICAL: Verify payment on-chain before registering domain
+        if not tx_hash:
+            await db.update_purchase(purchase_id, {"status": "payment_failed"})
+            return JSONResponse(status_code=400, content={"error": "Missing tx_hash in x402 Authorization header"})
+
+        if config.SKIP_PAYMENT_VERIFICATION:
+            if config.ENVIRONMENT == "production":
+                logger.error("SKIP_PAYMENT_VERIFICATION is enabled in production - this is a security risk!")
+                await db.update_purchase(purchase_id, {"status": "payment_failed"})
+                return JSONResponse(status_code=500, content={"error": "Payment verification misconfigured"})
+            verification = {"verified": True, "mock": True, "sender": payer}
+            logger.warning(f"SKIPPING payment verification for {tx_hash} (dev mode)")
+        else:
+            verification = await verifier.verify_payment(
+                tx_hash=tx_hash,
+                expected_amount=purchase["amount"],
+                expected_recipient=config.TREASURY_ADDRESS,
+            )
+
+        if not verification.get("verified"):
+            await db.update_purchase(purchase_id, {"status": "payment_failed", "tx_hash": tx_hash})
+            logger.error(f"Payment verification failed for {tx_hash}: {verification.get('error')}")
+            return JSONResponse(
+                status_code=402,
+                content={"error": f"Payment verification failed: {verification.get('error', 'Unknown error')}"}
+            )
+
+        # Payment verified - use the actual sender from blockchain
+        verified_payer = verification.get("sender", payer)
+        await db.update_purchase(purchase_id, {"payer": verified_payer, "signature": signature, "tx_hash": tx_hash})
 
         try:
             reg_result = await porkbun.register_domain(
@@ -370,7 +400,7 @@ async def x402_payment(purchase_id: str, request: Request):
                 "expires_at": reg_result.get("expiration", "2027-01-28"),
                 "nameservers": reg_result.get("ns", ["ns1.porkbun.com", "ns2.porkbun.com"]),
                 "registered_at": datetime.utcnow().isoformat(),
-                "owner_wallet": payer,
+                "owner_wallet": verified_payer,
                 "registrant": purchase.get("registrant", {}),
             }
             await db.create_domain(domain_info)
@@ -379,6 +409,7 @@ async def x402_payment(purchase_id: str, request: Request):
                 "status": "success",
                 "message": f"Domain {purchase['domain']} registered successfully!",
                 "domain": domain_info,
+                "tx_hash": tx_hash,
                 "ownership": {
                     "legal_owner": "Customer (registrant info in WHOIS)",
                     "dns_control": "Full access via this API",
@@ -555,7 +586,10 @@ async def list_domains(wallet: str):
 
     Each wallet can only see their own domains - wallet address acts as an API key.
     """
-    wallet = validate_wallet_address(wallet)
+    try:
+        wallet = validate_wallet_address(wallet)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     domains = await db.get_domains_by_wallet(wallet)
     return {
         "wallet": wallet,
@@ -572,7 +606,10 @@ async def get_purchase(purchase_id: str, wallet: str):
 
     Only the wallet that initiated the purchase (payer) can view its status.
     """
-    wallet = validate_wallet_address(wallet)
+    try:
+        wallet = validate_wallet_address(wallet)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     purchase = await db.get_purchase(purchase_id)
     if not purchase:
         raise HTTPException(404, "Purchase not found")
@@ -604,7 +641,10 @@ async def get_purchase(purchase_id: str, wallet: str):
 @limiter.limit(config.RATE_LIMIT_DNS)
 async def get_auth_code(domain: str, wallet: str, request: Request):
     """Get auth/EPP code for domain transfer."""
-    wallet = validate_wallet_address(wallet)
+    try:
+        wallet = validate_wallet_address(wallet)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
     if not await db.verify_domain_owner(domain, wallet):
         raise HTTPException(403, "You don't own this domain")
@@ -663,7 +703,10 @@ async def update_nameservers(req: NameserverUpdate, request: Request):
 @limiter.limit(config.RATE_LIMIT_DNS)
 async def get_dns_records(domain: str, wallet: str, request: Request):
     """Get all DNS records for a domain."""
-    wallet = validate_wallet_address(wallet)
+    try:
+        wallet = validate_wallet_address(wallet)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
     if not await db.verify_domain_owner(domain, wallet):
         raise HTTPException(403, "You don't own this domain")

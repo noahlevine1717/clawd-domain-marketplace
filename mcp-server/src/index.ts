@@ -46,7 +46,8 @@ const TOOLS: Tool[] = [
     name: "clawd_domain_purchase",
     description:
       "Initiate a domain purchase. Returns payment details that should be used with " +
-      "the clawd-wallet x402_payment_request tool. After payment, call clawd_domain_confirm.",
+      "the clawd-wallet x402_payment_request tool. After payment, call clawd_domain_confirm. " +
+      "IMPORTANT: Provide registrant info (first_name, last_name, email) for ICANN compliance.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -58,8 +59,44 @@ const TOOLS: Tool[] = [
           type: "number",
           description: "Number of years to register (1-10). Default is 1.",
         },
+        first_name: {
+          type: "string",
+          description: "Registrant first name (required for ICANN). The person who will own the domain.",
+        },
+        last_name: {
+          type: "string",
+          description: "Registrant last name (required for ICANN). The person who will own the domain.",
+        },
+        email: {
+          type: "string",
+          description: "Registrant email (required for ICANN). Used for domain transfer verification.",
+        },
+        phone: {
+          type: "string",
+          description: "Optional phone number in E.164 format, e.g., '+1.5551234567'",
+        },
+        address: {
+          type: "string",
+          description: "Optional street address for registrant contact",
+        },
+        city: {
+          type: "string",
+          description: "Optional city for registrant contact",
+        },
+        state: {
+          type: "string",
+          description: "Optional state/province code, e.g., 'CA'",
+        },
+        zip_code: {
+          type: "string",
+          description: "Optional postal/zip code",
+        },
+        country: {
+          type: "string",
+          description: "Optional 2-letter country code, e.g., 'US'. Default is 'US'.",
+        },
       },
-      required: ["domain"],
+      required: ["domain", "first_name", "last_name", "email"],
     },
   },
   {
@@ -309,10 +346,32 @@ async function handleDomainSearch(args: {
 async function handleDomainPurchase(args: {
   domain: string;
   years?: number;
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  zip_code?: string;
+  country?: string;
 }): Promise<string> {
+  const registrant = {
+    first_name: args.first_name,
+    last_name: args.last_name,
+    email: args.email,
+    phone: args.phone || "+1.5551234567",
+    address: args.address || "123 Main St",
+    city: args.city || "San Francisco",
+    state: args.state || "CA",
+    zip_code: args.zip_code || "94102",
+    country: args.country || "US",
+  };
+
   const result = await callBackend("/purchase/initiate", "POST", {
     domain: args.domain,
     years: args.years || 1,
+    registrant,
   });
 
   const data = result as {
@@ -631,7 +690,19 @@ async function main() {
 
         case "clawd_domain_purchase":
           result = await handleDomainPurchase(
-            args as { domain: string; years?: number }
+            args as {
+              domain: string;
+              years?: number;
+              first_name: string;
+              last_name: string;
+              email: string;
+              phone?: string;
+              address?: string;
+              city?: string;
+              state?: string;
+              zip_code?: string;
+              country?: string;
+            }
           );
           break;
 
