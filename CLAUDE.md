@@ -34,21 +34,27 @@ TypeScript MCP server providing tools for Claude Desktop.
 
 **Available Tools:**
 - `clawd_domain_search` - Search for available domains
-- `clawd_domain_purchase` - Initiate x402 purchase flow
+- `clawd_domain_purchase` - Initiate x402 purchase flow (requires registrant info)
+- `clawd_domain_confirm` - Confirm purchase after payment (with tx_hash)
+- `clawd_domain_list` - List domains owned by a wallet
 - `clawd_dns_list` - List DNS records (requires wallet)
 - `clawd_dns_create` - Create DNS record (requires wallet)
 - `clawd_dns_delete` - Delete DNS record (requires wallet)
 - `clawd_domain_nameservers` - Update nameservers (requires wallet)
+- `clawd_domain_auth_code` - Get EPP/auth code for domain transfer
 
 ## x402 Payment Flow
 
-1. Client calls `POST /purchase/initiate` with domain
+1. Client calls `POST /purchase/initiate` with domain and registrant info
 2. Backend returns `purchase_id` and payment details
 3. Client calls `GET /purchase/pay/{purchase_id}`
 4. Backend returns `402 Payment Required` with `WWW-Authenticate` header
-5. Client pays USDC on Base network
-6. Client resubmits with `Authorization: x402 ...` header
-7. Backend verifies payment and registers domain with Porkbun
+5. Client executes on-chain USDC transfer on Base network
+6. Client resubmits with `Authorization: x402 ...` header including `tx_hash`
+7. Backend verifies payment on-chain using the `tx_hash`
+8. If verified, domain is registered with Porkbun
+
+**Important:** The `tx_hash` is required for on-chain payment verification. The backend checks the actual USDC transfer on Base before completing the purchase.
 
 ## Environment Variables
 
@@ -60,6 +66,9 @@ Required for backend:
 
 ## Testing
 
+See [TESTING.md](./TESTING.md) for comprehensive API tests and [MCP_TESTING.md](./MCP_TESTING.md) for MCP tool tests.
+
+Quick examples:
 ```bash
 # Health check
 curl http://localhost:8402/health

@@ -366,8 +366,10 @@ WWW-Authenticate: x402 recipient="0x...", amount="4.99", currency="USDC", nonce=
 ### Authorization Header Format
 
 ```
-Authorization: x402 signature="0x...", payer="0x...", amount="4.99", recipient="0x...", nonce="clawd-uuid"
+Authorization: x402 payer="0x...", recipient="0x...", amount="4.99", currency="USDC", nonce="clawd-uuid", signature="0x...", tx_hash="0x..."
 ```
+
+**Note:** The `tx_hash` parameter is required for on-chain payment verification. The backend verifies the actual USDC transfer on Base network before completing the purchase.
 
 ## Deployment
 
@@ -459,6 +461,11 @@ Each user's wallet address acts as their unique identifier (like an API key):
 4. **Monitor rate limits** for abuse patterns
 5. **Keep dependencies updated**
 
+## Testing
+
+- **API Testing**: See [TESTING.md](./TESTING.md) for curl-based test commands
+- **MCP Testing**: See [MCP_TESTING.md](./MCP_TESTING.md) for Claude Desktop/Code testing
+
 ## Troubleshooting
 
 See [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) for comprehensive troubleshooting guide.
@@ -493,11 +500,14 @@ Solution: Use the same wallet address that purchased the domain
 | Tool | Description | Parameters |
 |------|-------------|------------|
 | `clawd_domain_search` | Search domain availability | `query`, `tlds?` |
-| `clawd_domain_purchase` | Initiate x402 purchase | `domain`, `years?` |
+| `clawd_domain_purchase` | Initiate x402 purchase | `domain`, `first_name`, `last_name`, `email`, `years?` |
+| `clawd_domain_confirm` | Confirm purchase after payment | `purchase_id`, `tx_hash` |
+| `clawd_domain_list` | List domains owned by wallet | `wallet` |
 | `clawd_dns_list` | List DNS records | `domain`, `wallet` |
-| `clawd_dns_create` | Create DNS record | `domain`, `type`, `name`, `content`, `wallet` |
+| `clawd_dns_create` | Create DNS record | `domain`, `record_type`, `name`, `content`, `wallet` |
 | `clawd_dns_delete` | Delete DNS record | `domain`, `record_id`, `wallet` |
 | `clawd_domain_nameservers` | Update nameservers | `domain`, `nameservers`, `wallet` |
+| `clawd_domain_auth_code` | Get transfer auth code | `domain`, `wallet` |
 
 ## Project Structure
 
@@ -506,7 +516,9 @@ clawd-domain-marketplace/
 ├── README.md                 # This file
 ├── CLAUDE.md                 # Claude Code context
 ├── DEPLOYMENT.md             # Deployment guide
-├── TROUBLESHOOTING.md        # Common issues
+├── TROUBLESHOOTING.md        # Common issues & solutions
+├── TESTING.md                # API/curl testing guide
+├── MCP_TESTING.md            # MCP tools testing guide
 ├── LICENSE                   # MIT License
 ├── .gitignore
 │

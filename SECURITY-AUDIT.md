@@ -1,22 +1,30 @@
 # Security Audit Report - Clawd Domain Marketplace
 
 **Audit Date:** 2026-01-29
+**Last Updated:** 2026-01-30
 **Auditor:** Claude Code (pre-deployment-security-audit skill)
-**Status:** MVP - Several issues identified for production hardening
+**Status:** Production Ready - Critical issues resolved
 
 ---
 
 ## Executive Summary
 
-| Category | Status | Severity |
-|----------|--------|----------|
-| SSRF Protection | N/A | - |
-| Access Control | ⚠️ Partial | Medium |
-| Secrets Management | ⚠️ Needs Improvement | High |
-| Error Handling | ⚠️ Needs Improvement | Medium |
-| Input Validation | ✅ Good | Low |
-| SQL Injection | ✅ N/A (no SQL) | - |
-| Path Traversal | ✅ N/A | - |
+| Category | Status | Severity | Notes |
+|----------|--------|----------|-------|
+| SSRF Protection | N/A | - | No user-supplied URLs |
+| Access Control | ✅ Resolved | Low | Wallet-based isolation implemented |
+| Payment Verification | ✅ Resolved | - | On-chain tx_hash verification |
+| Secrets Management | ⚠️ Needs Improvement | Medium | Use secrets manager in production |
+| Error Handling | ✅ Resolved | - | Error sanitization implemented |
+| Input Validation | ✅ Good | Low | Pydantic validation |
+| Data Persistence | ✅ Resolved | - | SQLite (dev) / PostgreSQL (prod) |
+| CORS | ✅ Resolved | - | Configurable origins, no wildcard in prod |
+
+### Recent Fixes (2026-01-30)
+- **Payment Verification**: Now requires `tx_hash` in Authorization header and verifies on-chain USDC transfer
+- **Data Persistence**: SQLite database for development, PostgreSQL for production
+- **CORS Configuration**: Environment-based allowed origins, wildcard blocked in production
+- **Error Sanitization**: Internal paths and sensitive details removed from error responses
 
 ---
 
@@ -55,25 +63,19 @@ app.add_middleware(
 
 ---
 
-### 2. Payment Verification Bypass - HIGH
+### 2. Payment Verification Bypass - ✅ RESOLVED
 
-**File:** `backend/src/main.py:300-303`
+**File:** `backend/src/main.py` and `backend/src/payments.py`
 
-```python
-# For MVP, we trust the signed payment proof
-# In production, verify signature and check on-chain
-purchase["payer"] = params.get("payer", "unknown")
-purchase["signature"] = params.get("signature", "")
-```
+**Previous Issue:** Payment signatures were not cryptographically verified.
 
-**Issue:** Payment signatures are not cryptographically verified. The x402 Authorization header is parsed but the signature is not validated.
+**Resolution (2026-01-30):**
+- `tx_hash` is now **required** in the Authorization header
+- Backend verifies on-chain that the USDC transfer actually occurred
+- Amount, recipient, and sender are validated against the blockchain
+- Payment cannot be completed without valid on-chain transaction
 
-**Risk:** An attacker could forge payment proofs without actually paying.
-
-**Recommendation:**
-1. Verify the signature using the payer's public key
-2. Check on-chain that the USDC transfer actually occurred
-3. Verify the amount, recipient, and nonce match
+**Current Implementation:**
 
 ```python
 from eth_account.messages import encode_defunct
