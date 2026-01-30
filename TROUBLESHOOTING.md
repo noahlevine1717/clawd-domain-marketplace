@@ -228,6 +228,99 @@ tail -f /tmp/clawd-backend.log
 # The payment must go to this exact address
 ```
 
+### "bad address checksum" error (ethers.js / clawd-wallet)
+
+**Error:**
+```
+bad address checksum (argument="address", value="0x742d35Cc6634C0532925a3b844Bc9e7595f5bE91", code=INVALID_ARGUMENT)
+```
+
+**Cause:** ethers.js requires EIP-55 checksummed addresses. The address has incorrect casing.
+
+**Solution:**
+```bash
+# Get the correctly checksummed address
+node -e "const { ethers } = require('ethers'); console.log(ethers.getAddress('0x742d35Cc6634C0532925a3b844Bc9e7595f5bE91'.toLowerCase()));"
+
+# Update your .env with the checksummed version
+# Wrong:  TREASURY_ADDRESS=0x742d35Cc6634C0532925a3b844Bc9e7595f5bE91
+# Right:  TREASURY_ADDRESS=0x742D35cc6634C0532925a3B844bc9E7595f5BE91
+```
+
+**Note:** All-lowercase addresses also work but provide no checksum protection.
+
+### "insufficient funds for intrinsic transaction cost" error
+
+**Error:**
+```
+USDC transfer failed: insufficient funds for intrinsic transaction cost
+```
+
+**Cause:** The wallet has USDC but no ETH for gas fees. ERC-20 token transfers require native currency (ETH on Base) to pay for transaction gas.
+
+**Solution:**
+```bash
+# Check ETH balance
+node -e "
+const { ethers } = require('ethers');
+const p = new ethers.JsonRpcProvider('https://mainnet.base.org');
+p.getBalance('YOUR_WALLET_ADDRESS').then(b => console.log('ETH:', ethers.formatEther(b)));
+"
+
+# Fund the wallet with ETH on Base network
+# Even 0.001 ETH (~$3) is enough for hundreds of transactions on Base
+# Send from Coinbase, bridge from Ethereum, or use a faucet
+```
+
+**Typical gas costs for USDC transfers:**
+| Network | Cost |
+|---------|------|
+| Base | ~$0.001-0.01 |
+| Ethereum | ~$2-10 |
+| Polygon | ~$0.001 |
+
+### x402 payment returns success but no transfer happens
+
+**Symptoms:**
+- `x402_payment_request` returns `{"success": true, "response": null}`
+- Wallet balance unchanged
+- No transaction on chain
+
+**Cause:** The payment endpoint may only accept GET requests (not POST) for the 402 flow.
+
+**Solution:**
+```bash
+# Test what method the endpoint accepts
+curl -i http://localhost:8402/purchase/pay/YOUR_PURCHASE_ID
+
+# If you get 402, it accepts GET
+# If you get 405 "Method Not Allowed", you're using the wrong method
+
+# When using clawd-wallet, use method: "GET"
+```
+
+### Config changes not taking effect
+
+**Symptoms:**
+- Updated config.py but backend still uses old values
+- TREASURY_ADDRESS shows old value after restart
+
+**Cause:** The `.env` file overrides defaults in config.py. The dotenv package loads environment variables first.
+
+**Solution:**
+```bash
+# Check what's in .env
+cat backend/.env | grep TREASURY
+
+# Update the .env file, not just config.py
+nano backend/.env
+
+# Restart the backend completely
+pkill -9 -f uvicorn
+cd backend && source venv/bin/activate
+uvicorn src.main:app --host 0.0.0.0 --port 8402
+```
+
 ---
 
 ## DNS Management Issues
@@ -467,6 +560,61 @@ cd backend
 source venv/bin/activate
 uvicorn src.main:app --host 0.0.0.0 --port 8402 --reload
 ```
+
+---
+
+## clawd-wallet Integration Issues
+
+### Wallet not making on-chain transfers
+
+**Symptoms:**
+- Payment "succeeds" but no blockchain transaction
+- Balance doesn't change
+- No tx_hash in response
+
+**Debugging:**
+```bash
+# Check if wallet has ETH for gas
+node -e "
+const { ethers } = require('ethers');
+const p = new ethers.JsonRpcProvider('https://mainnet.base.org');
+p.getBalance('0x10c4B8A12604a79b9f5534Cfdd763c3182C8EFd4').then(b =>
+  console.log('ETH balance:', ethers.formatEther(b))
+);
+"
+
+# Check USDC balance
+# Use x402_check_balance tool or check on basescan.org
+```
+
+**Common causes:**
+1. No ETH for gas (see "insufficient funds" error above)
+2. Address checksum mismatch (see "bad address checksum" above)
+3. Wrong HTTP method (see "x402 payment returns success" above)
+
+### Verifying successful payment
+
+After a payment succeeds, verify on chain:
+```bash
+# Check transaction on Base
+# https://basescan.org/tx/YOUR_TX_HASH
+
+# Check wallet balances changed
+# Payer wallet should have less USDC
+# Treasury wallet should have more USDC
+```
+
+### Complete x402 payment flow
+
+For reference, the successful flow is:
+
+1. **Initiate purchase** → Backend returns `purchase_id` and payment details
+2. **Request payment endpoint** (GET) → Backend returns 402 with `WWW-Authenticate` header
+3. **clawd-wallet parses 402** → Extracts recipient, amount, nonce
+4. **On-chain USDC transfer** → Wallet sends real USDC, gets tx_hash
+5. **Retry with Authorization header** → Include tx_hash for verification
+6. **Backend verifies on-chain** → Checks tx_hash on Base blockchain
+7. **Domain registered** → Porkbun API called, domain added to your account
 
 ---
 
