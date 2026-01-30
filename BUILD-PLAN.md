@@ -200,7 +200,7 @@ async def initiate_purchase(req: PurchaseRequest):
 
 @app.post("/purchase/confirm")
 async def confirm_purchase(req: ConfirmRequest):
-    # Verify payment on-chain
+    # Verify payment onchain
     # Register domain via Porkbun
     # Update records
     purchase = get_purchase(req.purchase_id)

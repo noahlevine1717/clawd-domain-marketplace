@@ -52,7 +52,7 @@ A CLI-native domain registration marketplace that enables purchasing domains wit
 │           ▼                                                          │
 │  ┌─────────────────┐          ┌─────────────────┐                    │
 │  │   SQLite DB     │          │   Base Network  │                    │
-│  │  (Purchases &   │          │  (USDC on-chain │                    │
+│  │  (Purchases &   │          │  (USDC onchain │                    │
 │  │   Ownership)    │◀────────▶│   verification) │                    │
 │  └─────────────────┘          └─────────────────┘                    │
 │                                                                       │
@@ -408,7 +408,7 @@ WWW-Authenticate: x402 recipient="0x...", amount="4.99", currency="USDC", nonce=
 Authorization: x402 payer="0x...", recipient="0x...", amount="4.99", currency="USDC", nonce="clawd-uuid", signature="0x...", tx_hash="0x..."
 ```
 
-**Note:** The `tx_hash` parameter is required for on-chain payment verification. The backend verifies the actual USDC transfer on Base network before completing the purchase.
+**Note:** The `tx_hash` parameter is required for onchain payment verification. The backend verifies the actual USDC transfer on Base network before completing the purchase.
 
 ## Deployment
 

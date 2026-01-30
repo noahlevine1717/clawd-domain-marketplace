@@ -21,7 +21,7 @@
 | CORS | ✅ Resolved | - | Configurable origins, no wildcard in prod |
 
 ### Recent Fixes (2026-01-30)
-- **Payment Verification**: Now requires `tx_hash` in Authorization header and verifies on-chain USDC transfer
+- **Payment Verification**: Now requires `tx_hash` in Authorization header and verifies onchain USDC transfer
 - **Data Persistence**: SQLite database for development, PostgreSQL for production
 - **CORS Configuration**: Environment-based allowed origins, wildcard blocked in production
 - **Error Sanitization**: Internal paths and sensitive details removed from error responses
@@ -71,9 +71,9 @@ app.add_middleware(
 
 **Resolution (2026-01-30):**
 - `tx_hash` is now **required** in the Authorization header
-- Backend verifies on-chain that the USDC transfer actually occurred
+- Backend verifies onchain that the USDC transfer actually occurred
 - Amount, recipient, and sender are validated against the blockchain
-- Payment cannot be completed without valid on-chain transaction
+- Payment cannot be completed without valid onchain transaction
 
 **Current Implementation:**
 
@@ -315,7 +315,7 @@ if os.getenv("ENVIRONMENT") == "production" and SKIP_PAYMENT_VERIFICATION:
 - [ ] **Database**: Add PostgreSQL for persistent storage
 - [ ] **Rate Limiting**: Add slowapi or similar
 - [ ] **Error Sanitization**: Remove internal details from error messages
-- [ ] **Payment Verification**: Implement signature verification and on-chain checks
+- [ ] **Payment Verification**: Implement signature verification and onchain checks
 - [ ] **Secrets**: Use Railway's secrets management, not `.env` in repo
 - [ ] **HTTPS**: Ensure Railway provides SSL (it does by default)
 - [ ] **Logging**: Add structured logging for audit trail

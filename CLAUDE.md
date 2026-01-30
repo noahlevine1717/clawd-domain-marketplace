@@ -49,12 +49,12 @@ TypeScript MCP server providing tools for Claude Desktop.
 2. Backend returns `purchase_id` and payment details
 3. Client calls `GET /purchase/pay/{purchase_id}`
 4. Backend returns `402 Payment Required` with `WWW-Authenticate` header
-5. Client executes on-chain USDC transfer on Base network
+5. Client executes onchain USDC transfer on Base network
 6. Client resubmits with `Authorization: x402 ...` header including `tx_hash`
-7. Backend verifies payment on-chain using the `tx_hash`
+7. Backend verifies payment onchain using the `tx_hash`
 8. If verified, domain is registered with Porkbun
 
-**Important:** The `tx_hash` is required for on-chain payment verification. The backend checks the actual USDC transfer on Base before completing the purchase.
+**Important:** The `tx_hash` is required for onchain payment verification. The backend checks the actual USDC transfer on Base before completing the purchase.
 
 ## Environment Variables
 

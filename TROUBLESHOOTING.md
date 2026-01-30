@@ -565,7 +565,7 @@ uvicorn src.main:app --host 0.0.0.0 --port 8402 --reload
 
 ## clawd-wallet Integration Issues
 
-### Wallet not making on-chain transfers
+### Wallet not making onchain transfers
 
 **Symptoms:**
 - Payment "succeeds" but no blockchain transaction
@@ -613,7 +613,7 @@ For reference, the successful flow is:
 3. **clawd-wallet parses 402** → Extracts recipient, amount, nonce
 4. **On-chain USDC transfer** → Wallet sends real USDC, gets tx_hash
 5. **Retry with Authorization header** → Include tx_hash for verification
-6. **Backend verifies on-chain** → Checks tx_hash on Base blockchain
+6. **Backend verifies onchain** → Checks tx_hash on Base blockchain
 7. **Domain registered** → Porkbun API called, domain added to your account
 
 ---
