@@ -14,52 +14,68 @@ A CLI-native domain registration marketplace that enables purchasing domains wit
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                      Clawd Domain Marketplace                        │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│  ┌────────────────┐                                                  │
-│  │ Claude Desktop │                                                  │
-│  │  or Claude Code│                                                  │
-│  └───────┬────────┘                                                  │
-│          │                                                           │
-│          ▼                                                           │
-│  ┌────────────────┐      ┌────────────────┐      ┌──────────────┐   │
-│  │   MCP Servers  │      │    Backend     │      │   Porkbun    │   │
-│  │                │      │   (FastAPI)    │      │     API      │   │
-│  │ ┌────────────┐ │      │                │      │              │   │
-│  │ │clawd-domains│─┼─────▶│  - Purchases  │─────▶│  - Register  │   │
-│  │ └────────────┘ │      │  - DNS mgmt   │      │  - DNS CRUD  │   │
-│  │ ┌────────────┐ │      │  - x402 flow  │      └──────────────┘   │
-│  │ │clawd-wallet│─┼─────▶│               │                          │
-│  │ └────────────┘ │      └───────┬───────┘                          │
-│  └────────────────┘              │                                   │
-│          │                       │                                   │
-│          │                       ▼                                   │
-│          │               ┌──────────────┐                           │
-│          │               │   SQLite DB  │                           │
-│          │               │  (Ownership) │                           │
-│          │               └──────────────┘                           │
-│          │                       │                                   │
-│          ▼                       ▼                                   │
-│  ┌────────────────┐      ┌──────────────┐                           │
-│  │  User Wallet   │─────▶│ Base Network │                           │
-│  │  (USDC + ETH)  │      │  (Verify tx) │                           │
-│  └────────────────┘      └──────────────┘                           │
-│                                                                      │
-└─────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│                      Clawd Domain Marketplace                         │
+│                    (x402 Payment Protocol)                            │
+├──────────────────────────────────────────────────────────────────────┤
+│                                                                       │
+│  ┌─────────────────┐                                                  │
+│  │  Claude Desktop │                                                  │
+│  │  or Claude Code │                                                  │
+│  └────────┬────────┘                                                  │
+│           │                                                           │
+│           ▼                                                           │
+│  ┌─────────────────────────────────────────┐     ┌──────────────┐    │
+│  │              MCP Servers                 │     │   Porkbun    │    │
+│  │  ┌─────────────┐    ┌─────────────┐     │     │     API      │    │
+│  │  │clawd-domains│    │clawd-wallet │     │     └──────┬───────┘    │
+│  │  │  (search,   │    │  (x402      │     │            │            │
+│  │  │   purchase, │    │   payments, │     │            │            │
+│  │  │   DNS)      │    │   USDC)     │     │            │            │
+│  │  └──────┬──────┘    └──────┬──────┘     │            │            │
+│  └─────────┼──────────────────┼────────────┘            │            │
+│            │                  │                         │            │
+│            ▼                  │                         │            │
+│  ┌─────────────────┐          │                         │            │
+│  │     Backend     │◀─────────┘                         │            │
+│  │    (FastAPI)    │        x402 Authorization          │            │
+│  │                 │        + tx_hash                   │            │
+│  │ ┌─────────────┐ │                                    │            │
+│  │ │ HTTP 402    │ │  ◀── Returns payment requirements  │            │
+│  │ │ + WWW-Auth  │ │                                    │            │
+│  │ └─────────────┘ │                                    │            │
+│  │                 │────────────────────────────────────┘            │
+│  │                 │      Register domain after                      │
+│  │                 │      payment verified                           │
+│  └────────┬────────┘                                                 │
+│           │                                                          │
+│           ▼                                                          │
+│  ┌─────────────────┐          ┌─────────────────┐                    │
+│  │   SQLite DB     │          │   Base Network  │                    │
+│  │  (Purchases &   │          │  (USDC on-chain │                    │
+│  │   Ownership)    │◀────────▶│   verification) │                    │
+│  └─────────────────┘          └─────────────────┘                    │
+│                                                                       │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
-### Payment Flow
+### x402 Payment Flow
 
 ```
-User ──▶ clawd-wallet ──▶ Base Network (USDC transfer)
-                              │
-                              ▼
-Backend ◀── tx_hash ◀── clawd-wallet
-    │
-    ▼
-Verify on Base ──▶ Register domain with Porkbun
+1. Client: GET /purchase/pay/{id}
+
+2. Backend: HTTP 402 Payment Required
+            WWW-Authenticate: x402 recipient="0x...", amount="4.99", ...
+
+3. clawd-wallet: Transfer USDC on Base → gets tx_hash
+
+4. Client: GET /purchase/pay/{id}
+           Authorization: x402 payer="0x...", tx_hash="0x...", ...
+
+5. Backend: Verify tx_hash on Base blockchain
+            If valid → Register domain with Porkbun
+
+6. Client: HTTP 200 + Domain registered!
 ```
 
 ### Components
