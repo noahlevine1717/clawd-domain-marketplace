@@ -110,7 +110,7 @@ If you just want to use the domain marketplace through Claude Desktop:
          "command": "node",
          "args": ["/path/to/clawd-domain-marketplace/mcp-server/dist/index.js"],
          "env": {
-           "CLAWD_API_URL": "https://your-backend-url.com"
+           "CLAWD_BACKEND_URL": "https://your-backend-url.com"
          }
        }
      }
@@ -210,7 +210,7 @@ npm run build
 The MCP server connects to your backend. Set the backend URL:
 
 ```bash
-export CLAWD_API_URL=http://localhost:8402  # or your production URL
+export CLAWD_BACKEND_URL=http://localhost:8402  # or your production URL
 ```
 
 ## API Reference

@@ -18,7 +18,7 @@ Verify both MCP servers are in your Claude configuration:
       "command": "node",
       "args": ["/path/to/clawd-domain-marketplace/mcp-server/dist/index.js"],
       "env": {
-        "CLAWD_API_URL": "http://localhost:8402"
+        "CLAWD_BACKEND_URL": "http://localhost:8402"
       }
     },
     "clawd-wallet": {
@@ -114,7 +114,7 @@ Domain Search Results for "myproject"
 
 **If it fails:**
 - Verify backend is running on port 8402
-- Check CLAWD_API_URL in MCP config
+- Check CLAWD_BACKEND_URL in MCP config
 
 ---
 
@@ -466,7 +466,7 @@ Use this checklist to verify your MCP integration:
 
 1. Check backend is running: `curl http://localhost:8402/health`
 2. Check backend logs: `tail -f /tmp/backend.log`
-3. Verify CLAWD_API_URL in MCP config
+3. Verify CLAWD_BACKEND_URL in MCP config
 
 ### Payment fails with "insufficient funds"
 
