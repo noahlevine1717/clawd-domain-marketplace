@@ -387,6 +387,9 @@ async function handleDomainPurchase(args: {
     };
   };
 
+  // Build the payment URL for x402
+  const paymentUrl = `${BACKEND_URL}/purchase/pay/${data.purchase_id}`;
+
   // Return structured info for the next step
   let output = `## Purchase Initiated: ${data.domain}\n\n`;
   output += `**Purchase ID:** \`${data.purchase_id}\`\n\n`;
@@ -399,12 +402,14 @@ async function handleDomainPurchase(args: {
   output += `| Expires | ${data.payment_request.expires_at} |\n\n`;
 
   output += `### Next Steps\n\n`;
-  output += `1. Use the **clawd-wallet x402_payment_request** tool to make the payment\n`;
-  output += `2. After payment, call **clawd_domain_confirm** with:\n`;
+  output += `1. Use **x402_payment_request** with this URL: \`${paymentUrl}\`\n`;
+  output += `2. The payment will be processed automatically via x402\n`;
+  output += `3. After payment, call **clawd_domain_confirm** with:\n`;
   output += `   - \`purchase_id\`: \`${data.purchase_id}\`\n`;
   output += `   - \`tx_hash\`: (from payment result)\n\n`;
 
-  output += `**Payment Details for x402:**\n\`\`\`json\n${JSON.stringify(data.payment_request, null, 2)}\n\`\`\``;
+  output += `**Payment URL for x402_payment_request:**\n\`\`\`\n${paymentUrl}\n\`\`\`\n\n`;
+  output += `**Payment Details:**\n\`\`\`json\n${JSON.stringify(data.payment_request, null, 2)}\n\`\`\``;
 
   return output;
 }
