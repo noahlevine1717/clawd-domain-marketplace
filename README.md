@@ -12,6 +12,8 @@ A CLI-native domain registration marketplace that enables purchasing domains wit
 > # Expected: {"status": "ok", "version": "0.2.0", ...}
 > ```
 
+> **Includes [clawd-wallet](https://github.com/csmoove530/clawd-wallet):** This repo comes with clawd-wallet as a git submodule, providing USDC payment capabilities via the x402 protocol. Clone with `--recurse-submodules` to get both.
+
 ## Features
 
 - **x402 Payment Protocol**: HTTP 402-based payment flow for USDC on Base network
@@ -19,6 +21,7 @@ A CLI-native domain registration marketplace that enables purchasing domains wit
 - **Full DNS Management**: Create, list, and delete DNS records (A, AAAA, CNAME, MX, TXT, NS, SRV)
 - **Wallet-Based Access Control**: Domain owners can only manage their own domains
 - **MCP Server**: Claude Desktop integration for AI-assisted domain management
+- **Includes clawd-wallet**: Bundled as a git submodule for seamless USDC payments and wallet management
 - **Security Hardened**: Rate limiting, CORS protection, input validation, error sanitization
 
 ## Architecture
