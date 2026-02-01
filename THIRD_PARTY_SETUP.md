@@ -4,7 +4,7 @@
 
 This guide is for third parties who want to use the Clawd Domain Marketplace to purchase and manage domains. You don't need a Porkbun account - the marketplace operator handles domain registration. You just need a crypto wallet with USDC on Base.
 
-> **TL;DR:** Install clawd-wallet MCP → Fund wallet with USDC on Base → Search and buy domains via Claude
+> **TL;DR:** Clone repo → Build both MCP servers → Add to Claude config → Fund wallet with USDC → Buy domains!
 
 ## Overview
 
@@ -79,7 +79,7 @@ cd ../clawd-wallet && npm install && npm run build
 
 ## Step 2: Configure Claude Code MCP
 
-Add the clawd-wallet MCP server to your Claude Code configuration.
+Add **both** MCP servers to your Claude Code configuration.
 
 ### Find your config file:
 
@@ -106,24 +106,28 @@ You need **both** MCP servers configured:
       "command": "node",
       "args": ["/YOUR/PATH/clawd-domain-marketplace/mcp-server/dist/index.js"],
       "env": {
-        "CLAWD_BACKEND_URL": "https://marketplace-backend-url.com"
+        "CLAWD_BACKEND_URL": "BACKEND_URL_HERE"
       }
     },
     "clawd-wallet": {
       "command": "node",
       "args": ["/YOUR/PATH/clawd-domain-marketplace/clawd-wallet/dist/index.js"],
       "env": {
-        "CLAWD_BACKEND_URL": "https://marketplace-backend-url.com"
+        "CLAWD_BACKEND_URL": "BACKEND_URL_HERE"
       }
     }
   }
 }
 ```
 
-**Important:**
-- Replace `/YOUR/PATH` with your actual path from the `pwd` command
-- Replace `https://marketplace-backend-url.com` with the URL provided by the marketplace operator
-- Both servers must point to the same backend URL
+**Replace these values:**
+
+| Placeholder | Replace with | Example |
+|-------------|--------------|---------|
+| `/YOUR/PATH` | Output from `pwd` command above | `/Users/john/clawd-domain-marketplace` |
+| `BACKEND_URL_HERE` | URL from marketplace operator | `https://clawd-marketplace.example.com` |
+
+> **Note:** Ask the marketplace operator for the backend URL. Both servers must use the same URL.
 
 ### Restart Claude Code
 
