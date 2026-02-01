@@ -122,12 +122,10 @@ You need **both** MCP servers configured:
 
 **Replace these values:**
 
-| Placeholder | Replace with | Example |
-|-------------|--------------|---------|
-| `/YOUR/PATH` | Output from `pwd` command above | `/Users/john/clawd-domain-marketplace` |
-| `BACKEND_URL_HERE` | URL from marketplace operator | `https://clawd-marketplace.example.com` |
-
-> **Note:** Ask the marketplace operator for the backend URL. Both servers must use the same URL.
+| Placeholder | Replace with |
+|-------------|--------------|
+| `/YOUR/PATH` | Output from `pwd` command above (e.g., `/Users/john/clawd-domain-marketplace`) |
+| `BACKEND_URL_HERE` | `https://clawd-domain-marketplace-production.up.railway.app` |
 
 ### Restart Claude Code
 
