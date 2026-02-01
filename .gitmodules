@@ -1,0 +1,3 @@
+[submodule "clawd-wallet"]
+	path = clawd-wallet
+	url = https://github.com/csmoove530/clawd-wallet.git

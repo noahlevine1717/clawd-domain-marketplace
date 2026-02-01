@@ -47,17 +47,20 @@ Your Wallet (USDC on Base)
 
 ---
 
-## Step 1: Clone and Build clawd-wallet
+## Step 1: Clone and Build
+
+clawd-wallet is included as a submodule in the marketplace repository.
 
 ```bash
-# Clone the repository
-git clone https://github.com/csmoove530/clawd-wallet.git
-cd clawd-wallet
+# Clone the marketplace with submodules
+git clone --recurse-submodules https://github.com/noahlevine1717/clawd-domain-marketplace.git
+cd clawd-domain-marketplace/clawd-wallet
 
-# Install dependencies
+# If you already cloned without --recurse-submodules:
+# git submodule update --init --recursive
+
+# Install dependencies and build
 npm install
-
-# Build
 npm run build
 ```
 
@@ -77,12 +80,18 @@ Add the clawd-wallet MCP server to your Claude Code configuration.
 
 ### Add this configuration:
 
+First, get the absolute path:
+```bash
+cd clawd-domain-marketplace/clawd-wallet && pwd
+# Copy the output (e.g., /Users/you/clawd-domain-marketplace/clawd-wallet)
+```
+
 ```json
 {
   "mcpServers": {
     "clawd-wallet": {
       "command": "node",
-      "args": ["/FULL/PATH/TO/clawd-wallet/dist/index.js"],
+      "args": ["/YOUR/PATH/clawd-domain-marketplace/clawd-wallet/dist/index.js"],
       "env": {
         "CLAWD_BACKEND_URL": "https://marketplace-backend-url.com"
       }
@@ -92,7 +101,7 @@ Add the clawd-wallet MCP server to your Claude Code configuration.
 ```
 
 **Important:**
-- Replace `/FULL/PATH/TO/clawd-wallet` with the actual path (use `pwd` in the clawd-wallet directory)
+- Replace `/YOUR/PATH` with your actual path from the `pwd` command
 - Replace `https://marketplace-backend-url.com` with the URL provided by the marketplace operator
 
 ### Restart Claude Code

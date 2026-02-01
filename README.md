@@ -162,11 +162,21 @@ If you want to run your own domain marketplace:
 - [Porkbun Account](https://porkbun.com) with API access and funds
 - Ethereum wallet for receiving USDC payments
 
-#### 1. Clone and Setup Backend
+#### 1. Clone Repository (with clawd-wallet)
 
 ```bash
-git clone https://github.com/noahlevine1717/clawd-domain-marketplace.git
-cd clawd-domain-marketplace/backend
+# Clone with submodules to get clawd-wallet automatically
+git clone --recurse-submodules https://github.com/noahlevine1717/clawd-domain-marketplace.git
+cd clawd-domain-marketplace
+
+# If you already cloned without --recurse-submodules:
+git submodule update --init --recursive
+```
+
+#### 2. Setup Backend
+
+```bash
+cd backend
 
 # Create virtual environment
 python3 -m venv venv
@@ -180,7 +190,7 @@ cp .env.example .env
 # Edit .env with your credentials (see Configuration section)
 ```
 
-#### 2. Configure Your Credentials
+#### 3. Configure Your Credentials
 
 Edit `backend/.env`:
 
@@ -196,7 +206,7 @@ TREASURY_ADDRESS=0xYourWalletAddress
 PUBLIC_URL=https://your-domain.com
 ```
 
-#### 3. Start the Backend
+#### 4. Start the Backend
 
 ```bash
 cd backend
@@ -204,12 +214,14 @@ source venv/bin/activate
 uvicorn src.main:app --host 0.0.0.0 --port 8402 --reload
 ```
 
-#### 4. Setup MCP Server
+#### 5. Setup MCP Servers
 
 ```bash
-cd mcp-server
-npm install
-npm run build
+# Build clawd-domains MCP server
+cd mcp-server && npm install && npm run build
+
+# Build clawd-wallet MCP server (included as submodule)
+cd ../clawd-wallet && npm install && npm run build
 ```
 
 ## Configuration
@@ -700,6 +712,7 @@ clawd-domain-marketplace/
 ├── MCP_TESTING.md            # MCP tools testing guide
 ├── LICENSE                   # MIT License
 ├── .gitignore
+├── .gitmodules               # Submodule configuration
 │
 ├── backend/                  # FastAPI backend
 │   ├── src/
@@ -714,11 +727,14 @@ clawd-domain-marketplace/
 │   ├── .env.example
 │   └── pyproject.toml
 │
-└── mcp-server/              # MCP server for Claude
-    ├── src/
-    │   └── index.ts         # MCP tool definitions
-    ├── package.json
-    └── tsconfig.json
+├── mcp-server/              # MCP server for domains
+│   ├── src/
+│   │   └── index.ts         # MCP tool definitions
+│   ├── package.json
+│   └── tsconfig.json
+│
+└── clawd-wallet/            # MCP server for payments (submodule)
+    └── (git submodule → github.com/csmoove530/clawd-wallet)
 ```
 
 ## License
