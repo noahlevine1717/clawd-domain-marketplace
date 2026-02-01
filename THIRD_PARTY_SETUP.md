@@ -1,6 +1,10 @@
 # Third-Party Setup Guide
 
+*Last Updated: January 31, 2026*
+
 This guide is for third parties who want to use the Clawd Domain Marketplace to purchase and manage domains. You don't need a Porkbun account - the marketplace operator handles domain registration. You just need a crypto wallet with USDC on Base.
+
+> **TL;DR:** Install clawd-wallet MCP → Fund wallet with USDC on Base → Search and buy domains via Claude
 
 ## Overview
 
@@ -37,8 +41,9 @@ Your Wallet (USDC on Base)
 - **Node.js 18+** - [Download](https://nodejs.org/)
 - **Claude Code** - For MCP server integration
 - **Git** - To clone the repository
-- **USDC on Base** - For domain purchases ($8-15 per domain)
-- **ETH on Base** - For gas fees (~0.001 ETH is plenty)
+- **USDC on Base** - For domain purchases ($5-15 per domain)
+
+> **No ETH required!** The marketplace uses EIP-3009 gasless payments. You only need USDC - the marketplace operator pays gas fees.
 
 ---
 
@@ -114,23 +119,20 @@ Your wallet is automatically created and stored securely in your system keychain
 
 ## Step 4: Fund Your Wallet
 
-You need two things on Base network:
+You only need USDC on Base network. No ETH required for gas!
 
-### 1. ETH for Gas (~0.001 ETH minimum)
+### Get USDC on Base
 
-Options to get ETH on Base:
-- Bridge from Ethereum mainnet via [Base Bridge](https://bridge.base.org)
-- Buy on Coinbase and withdraw to Base
-- Use a cross-chain bridge like [Across](https://across.to)
-
-### 2. USDC for Domain Purchases
-
-Options to get USDC on Base:
-- Bridge USDC from Ethereum via [Base Bridge](https://bridge.base.org)
-- Buy USDC on Coinbase and withdraw to Base
-- Swap ETH for USDC on [Uniswap](https://app.uniswap.org) (Base network)
+Options to get USDC:
+- **Coinbase**: Buy USDC and withdraw directly to Base network
+- **Bridge**: Transfer USDC from Ethereum via [Base Bridge](https://bridge.base.org)
+- **Swap**: Exchange ETH for USDC on [Uniswap](https://app.uniswap.org) (select Base network)
 
 **USDC Contract on Base:** `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`
+
+### Why No ETH?
+
+The marketplace uses **EIP-3009 gasless payments**. You sign an authorization (free), and the marketplace's relayer executes the transfer and pays gas on your behalf. You only pay the domain price in USDC.
 
 ### Verify Funding
 
@@ -226,19 +228,15 @@ This returns the EPP/auth code needed to transfer to GoDaddy, Namecheap, etc.
 
 ## Troubleshooting
 
-### "Insufficient ETH for gas fees"
+### "Insufficient balance"
 
-You need ETH on Base for transaction fees, even when paying with USDC.
+Your USDC balance is too low for the domain price.
 
 ```
 > Use x402_check_balance
 ```
 
-If ETH balance is 0, send ~0.001 ETH to your wallet address on Base network.
-
-### "Insufficient balance"
-
-Your USDC balance is too low for the domain price.
+Add more USDC to your wallet on Base network.
 
 ### "Invalid recipient address" or "bad address checksum"
 

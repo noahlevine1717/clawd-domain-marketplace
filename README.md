@@ -1,6 +1,16 @@
 # Clawd Domain Marketplace
 
+*Last Updated: January 31, 2026*
+
 A CLI-native domain registration marketplace that enables purchasing domains with USDC using the x402 payment protocol. Built for AI agents and developers who want programmatic domain management.
+
+> **TL;DR:** Search domains, pay with USDC on Base, get instant registration. Works with Claude Desktop/Code via MCP.
+>
+> ```bash
+> # Quick test (no setup needed):
+> curl https://your-backend-url.com/health
+> # Expected: {"status": "ok", "version": "0.2.0", ...}
+> ```
 
 ## Features
 
@@ -38,15 +48,17 @@ A CLI-native domain registration marketplace that enables purchasing domains wit
 │            ▼                  │                         │            │
 │  ┌─────────────────┐          │                         │            │
 │  │     Backend     │◀─────────┘                         │            │
-│  │    (FastAPI)    │        x402 Authorization          │            │
-│  │                 │        + tx_hash                   │            │
+│  │    (FastAPI)    │     X-PAYMENT header               │            │
+│  │                 │     (EIP-3009 authorization)       │            │
 │  │ ┌─────────────┐ │                                    │            │
 │  │ │ HTTP 402    │ │  ◀── Returns payment requirements  │            │
-│  │ │ + WWW-Auth  │ │                                    │            │
+│  │ │ + x402 JSON │ │                                    │            │
 │  │ └─────────────┘ │                                    │            │
-│  │                 │────────────────────────────────────┘            │
+│  │ ┌─────────────┐ │                                    │            │
+│  │ │ Relayer     │ │  ──▶ Executes USDC transfer        │            │
+│  │ └─────────────┘ │────────────────────────────────────┘            │
 │  │                 │      Register domain after                      │
-│  │                 │      payment verified                           │
+│  │                 │      relayer confirms tx                        │
 │  └────────┬────────┘                                                 │
 │           │                                                          │
 │           ▼                                                          │
@@ -59,30 +71,36 @@ A CLI-native domain registration marketplace that enables purchasing domains wit
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-### x402 Payment Flow
+### x402 Payment Flow (EIP-3009 Relayer Pattern)
 
 ```
 1. Client: GET /purchase/pay/{id}
 
 2. Backend: HTTP 402 Payment Required
-            WWW-Authenticate: x402 recipient="0x...", amount="4.99", ...
+            Returns x402 JSON with payment requirements
 
-3. clawd-wallet: Transfer USDC on Base → gets tx_hash
+3. clawd-wallet: Signs EIP-3009 transferWithAuthorization
+                 (No onchain tx yet - just a signature)
 
 4. Client: GET /purchase/pay/{id}
-           Authorization: x402 payer="0x...", tx_hash="0x...", ...
+           X-PAYMENT: base64-encoded authorization + signature
 
-5. Backend: Verify tx_hash on Base blockchain
-            If valid → Register domain with Porkbun
+5. Backend Relayer: Executes transferWithAuthorization on USDC contract
+                    Pays gas, waits for confirmation
 
-6. Client: HTTP 200 + Domain registered!
+6. Backend: Domain registered with Porkbun
+
+7. Client: HTTP 200 + Domain info!
 ```
+
+**Key insight:** The client signs an *authorization*, not a transaction. The server's relayer executes the actual onchain transfer, paying gas fees. This enables gasless payments for users.
 
 ### Components
 
 | Component | Purpose | Technology |
 |-----------|---------|------------|
 | **Backend** | API server handling purchases, DNS, payments | FastAPI (Python) |
+| **Relayer** | Executes EIP-3009 transfers (pays gas for users) | web3.py |
 | **MCP Server** | Claude Desktop integration | TypeScript |
 | **Database** | Persistent storage for purchases and ownership | SQLite / PostgreSQL |
 | **Porkbun** | Domain registration and DNS management | REST API |
@@ -102,13 +120,22 @@ If you just want to use the domain marketplace through Claude Desktop:
 
 2. **Configure Claude Desktop**
 
-   Add to your Claude Desktop MCP config (`~/.config/claude-desktop/claude_desktop_config.json` on Linux, `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
+   First, get the absolute path to the MCP server:
+   ```bash
+   cd mcp-server && pwd
+   # Copy the output (e.g., /Users/you/clawd-domain-marketplace/mcp-server)
+   ```
+
+   Add to your Claude Desktop MCP config:
+   - **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+   - **Linux**: `~/.config/claude-desktop/claude_desktop_config.json`
+
    ```json
    {
      "mcpServers": {
        "clawd-domains": {
          "command": "node",
-         "args": ["/path/to/clawd-domain-marketplace/mcp-server/dist/index.js"],
+         "args": ["/YOUR/ABSOLUTE/PATH/mcp-server/dist/index.js"],
          "env": {
            "CLAWD_BACKEND_URL": "https://your-backend-url.com"
          }
@@ -116,6 +143,8 @@ If you just want to use the domain marketplace through Claude Desktop:
      }
    }
    ```
+
+   > **Important:** Replace `/YOUR/ABSOLUTE/PATH` with the output from the `pwd` command above.
 
 3. **Use in Claude**
    - Search: "Search for available domains like myproject"
@@ -193,6 +222,8 @@ npm run build
 | `PORKBUN_SECRET` | Yes | Your Porkbun secret key (starts with `sk1_`) |
 | `TREASURY_ADDRESS` | Yes | Ethereum address to receive USDC payments |
 | `PUBLIC_URL` | Yes | Public URL for x402 callbacks |
+| `RELAYER_PRIVATE_KEY` | Yes (prod) | Private key for EIP-3009 relayer (pays gas) |
+| `BASE_RPC_URL` | No | Base network RPC (default: public endpoint) |
 | `ENVIRONMENT` | No | `development` or `production` |
 | `DATABASE_URL` | No | Database connection string |
 | `ALLOWED_ORIGINS` | No | CORS allowed origins (comma-separated) |
@@ -367,9 +398,11 @@ curl -X POST http://localhost:8402/domains/dns \
 
 ## x402 Payment Protocol
 
-The x402 protocol enables HTTP-native cryptocurrency payments.
+The x402 protocol enables HTTP-native cryptocurrency payments using EIP-3009 gasless authorization.
 
-### Flow
+> **TL;DR:** Client signs authorization → Server executes transfer → Domain registered. Users don't need ETH for gas.
+
+### Sequence Diagram
 
 ```
 ┌─────────┐          ┌─────────┐          ┌─────────┐
@@ -379,36 +412,133 @@ The x402 protocol enables HTTP-native cryptocurrency payments.
      │  GET /pay/{id}     │                    │
      │───────────────────▶│                    │
      │                    │                    │
-     │  402 + WWW-Auth    │                    │
+     │  402 + x402 JSON   │                    │
      │◀───────────────────│                    │
      │                    │                    │
-     │  Pay USDC          │                    │
-     │────────────────────┼───────────────────▶│
+     │  Sign EIP-3009     │                    │
+     │  authorization     │                    │
      │                    │                    │
      │  GET /pay/{id}     │                    │
-     │  + Authorization   │                    │
+     │  + X-PAYMENT       │                    │
      │───────────────────▶│                    │
-     │                    │   Verify Payment   │
+     │                    │                    │
+     │                    │  Relayer executes  │
+     │                    │  transferWithAuth  │
      │                    │───────────────────▶│
+     │                    │                    │
+     │                    │  tx confirmed      │
+     │                    │◀───────────────────│
      │                    │                    │
      │  200 + Domain Info │                    │
      │◀───────────────────│                    │
      │                    │                    │
 ```
 
-### WWW-Authenticate Header Format
+### Complete 402 Response Example
 
-```
-WWW-Authenticate: x402 recipient="0x...", amount="4.99", currency="USDC", nonce="clawd-uuid", description="Domain: example.xyz (1 year)"
-```
-
-### Authorization Header Format
-
-```
-Authorization: x402 payer="0x...", recipient="0x...", amount="4.99", currency="USDC", nonce="clawd-uuid", signature="0x...", tx_hash="0x..."
+```bash
+curl -i http://localhost:8402/purchase/pay/d336e9e5-ec45-4483-af0f-7c5d1f122223
 ```
 
-**Note:** The `tx_hash` parameter is required for onchain payment verification. The backend verifies the actual USDC transfer on Base network before completing the purchase.
+```http
+HTTP/1.1 402 Payment Required
+Content-Type: application/json
+
+{
+  "x402Version": 1,
+  "error": "X-PAYMENT header is required",
+  "accepts": [
+    {
+      "scheme": "exact",
+      "network": "base",
+      "maxAmountRequired": "4990000",
+      "resource": "https://your-backend.com/purchase/pay/d336e9e5-...",
+      "description": "Domain: example.xyz (1 year)",
+      "mimeType": "application/json",
+      "payTo": "0x742D35cc6634C0532925a3B844bc9E7595f5BE91",
+      "maxTimeoutSeconds": 300,
+      "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      "extra": {
+        "name": "USD Coin",
+        "version": "2"
+      },
+      "outputSchema": {
+        "input": {
+          "type": "http",
+          "method": "POST",
+          "discoverable": true
+        }
+      }
+    }
+  ]
+}
+```
+
+**Key fields:**
+- `maxAmountRequired`: Amount in micro-units (4990000 = $4.99 USDC)
+- `payTo`: Treasury address receiving payment
+- `asset`: USDC contract on Base (`0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`)
+- `network`: Must be `"base"` (not `"base-mainnet"`)
+
+### X-PAYMENT Header (Client → Server)
+
+The client sends a base64-encoded JSON payload:
+
+```json
+{
+  "x402Version": 1,
+  "scheme": "exact",
+  "network": "base",
+  "payload": {
+    "signature": "0x4ce4557e610807334a24cadebb38a1b39d392a23...",
+    "authorization": {
+      "from": "0xE3E6604323Ea5d0bF926255a72daC8c04FDc6891",
+      "to": "0x742D35cc6634C0532925a3B844bc9E7595f5BE91",
+      "value": "4990000",
+      "validAfter": "1769918598",
+      "validBefore": "1769922258",
+      "nonce": "0xb9389efa8490ac6f35e59701eaecdf7863df931c..."
+    }
+  }
+}
+```
+
+**Critical insight:** This is an EIP-3009 authorization, NOT a completed transaction. The server's relayer executes `transferWithAuthorization` on the USDC contract using this signed authorization.
+
+## EIP-3009 Relayer
+
+The backend includes a relayer that executes EIP-3009 `transferWithAuthorization` calls on the USDC contract. This enables gasless payments for users.
+
+### How It Works
+
+1. User signs an EIP-3009 authorization (off-chain, no gas required)
+2. Server relayer submits `transferWithAuthorization` to USDC contract
+3. Relayer pays gas fees on behalf of the user
+4. USDC transfers directly from user to treasury
+
+### Configuration
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `RELAYER_PRIVATE_KEY` | Yes (prod) | Private key of wallet that pays gas |
+| `BASE_RPC_URL` | No | Base network RPC (default: `https://mainnet.base.org`) |
+
+### Relayer Wallet Setup
+
+```bash
+# Generate a new wallet for the relayer
+node -e "const w = require('ethers').Wallet.createRandom(); console.log('Address:', w.address, '\nPrivate Key:', w.privateKey)"
+
+# Add to backend/.env
+RELAYER_PRIVATE_KEY=0x...your_private_key...
+
+# Fund with ETH on Base for gas (~0.01 ETH = 100+ transactions)
+# Send ETH to the relayer address on Base network
+```
+
+**Important:** The relayer wallet only needs ETH for gas. USDC goes directly from payer to treasury.
+
+---
 
 ## Deployment
 
@@ -443,6 +573,7 @@ docker run -p 8402:8402 --env-file .env clawd-backend
 ### Production Checklist
 
 - [ ] Set `ENVIRONMENT=production`
+- [ ] Set `RELAYER_PRIVATE_KEY` and fund relayer with ETH on Base
 - [ ] Configure specific `ALLOWED_ORIGINS` (not wildcard)
 - [ ] Use HTTPS for `PUBLIC_URL`
 - [ ] Set up PostgreSQL instead of SQLite
@@ -495,10 +626,11 @@ Each user's wallet address acts as their unique identifier (like an API key):
 ### Security Best Practices
 
 1. **Never commit `.env` files** - Use `.env.example` as template
-2. **Rotate API keys** if accidentally exposed
-3. **Use HTTPS** in production
-4. **Monitor rate limits** for abuse patterns
-5. **Keep dependencies updated**
+2. **Protect `RELAYER_PRIVATE_KEY`** - Has access to gas funds
+3. **Rotate API keys** if accidentally exposed
+4. **Use HTTPS** in production
+5. **Monitor rate limits** for abuse patterns
+6. **Keep dependencies updated**
 
 ## Testing
 
@@ -511,27 +643,35 @@ See [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) for comprehensive troubleshooting
 
 ### Common Issues
 
-**"Insufficient funds" from Porkbun**
+> For comprehensive troubleshooting, see [TROUBLESHOOTING.md](./TROUBLESHOOTING.md)
+
+**"Insufficient funds" from Porkbun** → [Full details](./TROUBLESHOOTING.md#insufficient-funds)
 ```
 Solution: Add funds to your Porkbun account at porkbun.com
 ```
 
-**"Rate limit exceeded"**
+**"Rate limit exceeded"** → [Full details](./TROUBLESHOOTING.md#rate-limit-hit)
 ```
 Solution: Wait 1 minute for rate limits to reset
 Note: Porkbun also has 1 domain check per 10 seconds limit
 ```
 
-**Payment fails with 500**
+**Payment fails with 500** → [Full details](./TROUBLESHOOTING.md#payment-fails-with-500-error)
 ```
-1. Check backend logs: tail -f /tmp/clawd-backend.log
+1. Check backend logs: tail -f /tmp/backend.log
 2. Verify PUBLIC_URL is accessible (use ngrok for local dev)
-3. Check Porkbun account has sufficient funds
+3. Check relayer wallet has ETH for gas
+4. Check Porkbun account has sufficient funds
 ```
 
-**"You don't own this domain"**
+**"You don't own this domain"** → [Full details](./TROUBLESHOOTING.md#you-dont-own-this-domain)
 ```
 Solution: Use the same wallet address that purchased the domain
+```
+
+**"bad address checksum"** → [Full details](./TROUBLESHOOTING.md#bad-address-checksum-error-ethersjs--clawd-wallet)
+```
+Solution: Use properly checksummed address in TREASURY_ADDRESS
 ```
 
 ## MCP Tools Reference
@@ -568,7 +708,8 @@ clawd-domain-marketplace/
 │   │   ├── config.py        # Configuration
 │   │   ├── database.py      # SQLite/PostgreSQL
 │   │   ├── porkbun.py       # Porkbun API client
-│   │   └── payments.py      # x402 verification
+│   │   ├── payments.py      # x402 verification
+│   │   └── relayer.py       # EIP-3009 payment relayer
 │   ├── requirements.txt
 │   ├── .env.example
 │   └── pyproject.toml

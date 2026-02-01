@@ -1,6 +1,10 @@
 # Testing Guide
 
+*Last Updated: January 31, 2026*
+
 This guide provides comprehensive tests to verify your Clawd Domain Marketplace installation is working correctly.
+
+> **TL;DR:** Run the automated test script at the bottom, or step through Tests 1-5 manually.
 
 ## Prerequisites
 
@@ -8,20 +12,21 @@ Before running tests, ensure:
 
 1. **Backend is running:**
    ```bash
-   cd backend
-   source venv/bin/activate
-   uvicorn src.main:app --host 0.0.0.0 --port 8402
+   # Canonical command (use this everywhere)
+   cd backend && source venv/bin/activate && uvicorn src.main:app --host 0.0.0.0 --port 8402
    ```
 
 2. **Environment configured:**
    - `.env` file has valid Porkbun API credentials
    - `TREASURY_ADDRESS` is set to a valid checksummed Ethereum address
+   - `RELAYER_PRIVATE_KEY` is set (for payment tests)
    - Porkbun account has sufficient balance (~$5+ for .xyz domains)
+   - Relayer wallet has ETH on Base for gas (~0.01 ETH)
 
 3. **For payment tests:**
    - clawd-wallet MCP server configured
    - Wallet has USDC on Base network
-   - Wallet has ETH on Base for gas fees (~0.001 ETH minimum)
+   - (No ETH needed for users - relayer pays gas)
 
 ---
 
@@ -131,14 +136,32 @@ curl -s -X POST http://localhost:8402/purchase/initiate \
 # Use the purchase_id from Test 3
 PURCHASE_ID="your-purchase-id-here"
 
-curl -s -i "http://localhost:8402/purchase/pay/$PURCHASE_ID" 2>&1 | head -20
+curl -s "http://localhost:8402/purchase/pay/$PURCHASE_ID" | jq .
 ```
 
 **Expected output:**
+```json
+{
+  "x402Version": 1,
+  "error": "X-PAYMENT header is required",
+  "accepts": [
+    {
+      "scheme": "exact",
+      "network": "base",
+      "maxAmountRequired": "4990000",
+      "payTo": "0x742D35cc6634C0532925a3B844bc9E7595f5BE91",
+      "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      ...
+    }
+  ]
+}
 ```
-HTTP/1.1 402 Payment Required
-www-authenticate: x402 recipient="0x742D35cc...", amount="4.99", currency="USDC", nonce="clawd-...", description="Domain: my-test-domain.xyz (1 year)"
-```
+
+**Key validations:**
+- Response is JSON with `x402Version: 1`
+- `network` is `"base"` (not `"base-mainnet"`)
+- `maxAmountRequired` is in micro-units (4990000 = $4.99)
+- `outputSchema` is present (required by some x402 clients)
 
 **Troubleshooting:**
 - Must use GET method (not POST)

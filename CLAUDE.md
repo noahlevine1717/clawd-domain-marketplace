@@ -1,6 +1,21 @@
 # Claude Code Context - Clawd Domain Marketplace
 
+*Last Updated: January 31, 2026*
+
 This file provides context for Claude Code when working on this project.
+
+## Table of Contents
+
+- [Project Overview](#project-overview)
+- [Key Components](#key-components)
+- [x402 Payment Flow](#x402-payment-flow)
+- [Environment Variables](#environment-variables)
+- [Testing](#testing)
+- [Common Issues](#common-issues)
+- [Security Notes](#security-notes)
+- [Development Commands](#development-commands)
+- [Database Schema](#database-schema)
+- [API Response Codes](#api-response-codes)
 
 ## Project Overview
 
@@ -18,6 +33,7 @@ FastAPI server handling domain operations and payments.
 - `src/porkbun.py` - Porkbun API client for domain registration and DNS
 - `src/database.py` - SQLite persistence for purchases and domain ownership
 - `src/payments.py` - x402 payment verification on Base network
+- `src/relayer.py` - EIP-3009 transferWithAuthorization executor
 
 **Important Patterns:**
 - All DNS operations require wallet ownership verification
@@ -43,26 +59,31 @@ TypeScript MCP server providing tools for Claude Desktop.
 - `clawd_domain_nameservers` - Update nameservers (requires wallet)
 - `clawd_domain_auth_code` - Get EPP/auth code for domain transfer
 
-## x402 Payment Flow
+## x402 Payment Flow (EIP-3009 Relayer Pattern)
 
 1. Client calls `POST /purchase/initiate` with domain and registrant info
 2. Backend returns `purchase_id` and payment details
 3. Client calls `GET /purchase/pay/{purchase_id}`
-4. Backend returns `402 Payment Required` with `WWW-Authenticate` header
-5. Client executes onchain USDC transfer on Base network
-6. Client resubmits with `Authorization: x402 ...` header including `tx_hash`
-7. Backend verifies payment onchain using the `tx_hash`
-8. If verified, domain is registered with Porkbun
+4. Backend returns `402 Payment Required` with x402 JSON body
+5. Client signs EIP-3009 authorization (off-chain, no gas needed)
+6. Client resubmits with `X-PAYMENT` header containing base64-encoded authorization + signature
+7. **Backend relayer** executes `transferWithAuthorization` on USDC contract (pays gas)
+8. Backend waits for transaction confirmation
+9. Domain is registered with Porkbun
 
-**Important:** The `tx_hash` is required for onchain payment verification. The backend checks the actual USDC transfer on Base before completing the purchase.
+**Key insight:** The client does NOT execute an onchain transfer. They sign an authorization that the server's relayer executes. This enables gasless payments for users.
+
+**Relayer wallet:** Needs ETH on Base for gas fees (~0.01 ETH = 100+ transactions). USDC goes directly from payer to treasury.
 
 ## Environment Variables
 
 Required for backend:
 - `PORKBUN_API_KEY` - Porkbun API key (pk1_...)
 - `PORKBUN_SECRET` - Porkbun secret (sk1_...)
-- `TREASURY_ADDRESS` - Wallet to receive USDC
+- `TREASURY_ADDRESS` - Wallet to receive USDC payments
 - `PUBLIC_URL` - Public URL for x402 callbacks
+- `RELAYER_PRIVATE_KEY` - Private key for EIP-3009 relayer (pays gas, required in production)
+- `BASE_RPC_URL` - Base network RPC (optional, defaults to public endpoint)
 
 ## Testing
 
@@ -86,30 +107,36 @@ curl "http://localhost:8402/domains/mydomain.xyz/dns?wallet=0x..."
 
 1. **"Insufficient funds"** - Porkbun account needs balance
 2. **Rate limit exceeded** - Wait 1 minute, or 10 seconds for Porkbun checks
-3. **500 on payment** - Check PUBLIC_URL is accessible (use ngrok for local dev)
+3. **500 on payment** - Check PUBLIC_URL is accessible, relayer has ETH for gas
 4. **"You don't own this domain"** - Use wallet that purchased the domain
+5. **"Relayer has insufficient gas"** - Fund relayer wallet with ETH on Base
+6. **"Transaction reverted"** - Authorization expired or already used (nonces are one-time)
+
+See [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) for comprehensive solutions.
 
 ## Security Notes
 
 - Never enable `SKIP_PAYMENT_VERIFICATION` in production
 - `.env` files contain secrets - never commit them
+- `RELAYER_PRIVATE_KEY` has access to gas funds - protect it
 - Database contains purchase history - exclude from git
 - Wallet validation uses regex: `^0x[a-fA-F0-9]{40}$`
 
 ## Development Commands
 
 ```bash
-# Backend
-cd backend && source venv/bin/activate
-uvicorn src.main:app --host 0.0.0.0 --port 8402 --reload
+# Backend (canonical command - use this everywhere)
+cd backend && source venv/bin/activate && uvicorn src.main:app --host 0.0.0.0 --port 8402
+
+# Backend with auto-reload (development only)
+cd backend && source venv/bin/activate && uvicorn src.main:app --host 0.0.0.0 --port 8402 --reload
 
 # MCP Server
-cd mcp-server
-npm run build
-node dist/index.js
+cd mcp-server && npm run build && node dist/index.js
 
-# Local tunnel for testing
+# Local tunnel for testing x402 (required for external clients)
 ngrok http 8402
+# Then update PUBLIC_URL in backend/.env with the ngrok URL
 ```
 
 ## Database Schema

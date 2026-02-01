@@ -1,12 +1,17 @@
 # Troubleshooting Guide
 
+*Last Updated: January 31, 2026*
+
 This guide covers common issues when setting up and running Clawd Domain Marketplace.
+
+> **TL;DR:** Most issues are: (1) Porkbun needs funds, (2) Relayer needs ETH for gas, (3) Wrong wallet address format.
 
 ## Table of Contents
 
 - [Installation Issues](#installation-issues)
 - [Backend Issues](#backend-issues)
 - [Payment Issues](#payment-issues)
+- [Relayer Issues](#relayer-issues)
 - [DNS Management Issues](#dns-management-issues)
 - [MCP Server Issues](#mcp-server-issues)
 - [Porkbun API Issues](#porkbun-api-issues)
@@ -168,20 +173,25 @@ SKIP_PAYMENT_VERIFICATION=false
 
 **Symptoms:**
 - x402 payment initiated
-- Payment transaction succeeds on chain
-- Backend returns 500 error
+- Client receives 500 error
 
 **Debugging:**
 ```bash
 # Check backend logs
-tail -f /tmp/clawd-backend.log
+tail -f /tmp/backend.log
 
 # Or if running in foreground, check terminal output
 ```
 
 **Common Causes:**
 
-1. **PUBLIC_URL not accessible**
+1. **Relayer has no ETH for gas**
+   ```bash
+   # Check relayer ETH balance
+   # Fund with ~0.01 ETH on Base if empty
+   ```
+
+2. **PUBLIC_URL not accessible**
    ```bash
    # For local development, use ngrok
    ngrok http 8402
@@ -190,11 +200,11 @@ tail -f /tmp/clawd-backend.log
    PUBLIC_URL=https://your-ngrok-url.ngrok-free.dev
    ```
 
-2. **Porkbun insufficient funds**
+3. **Porkbun insufficient funds**
    - Log into porkbun.com
    - Add funds to your account
 
-3. **Rate limited by Porkbun**
+4. **Rate limited by Porkbun**
    - Wait 10 seconds between domain checks
    - The backend handles this, but rapid requests can still hit limits
 
@@ -319,6 +329,86 @@ nano backend/.env
 pkill -9 -f uvicorn
 cd backend && source venv/bin/activate
 uvicorn src.main:app --host 0.0.0.0 --port 8402
+```
+
+---
+
+## Relayer Issues
+
+The EIP-3009 relayer executes `transferWithAuthorization` on behalf of users. These issues are specific to the relayer component.
+
+### "Relayer has insufficient gas"
+
+**Error:**
+```
+{"error": "Relayer has insufficient gas. Please try again later."}
+```
+
+**Cause:** The relayer wallet doesn't have enough ETH on Base to pay for gas.
+
+**Solution:**
+```bash
+# Check relayer balance
+node -e "
+const { ethers } = require('ethers');
+const p = new ethers.JsonRpcProvider('https://mainnet.base.org');
+p.getBalance('RELAYER_ADDRESS').then(b => console.log('ETH:', ethers.formatEther(b)));
+"
+
+# Fund with ~0.01 ETH on Base (enough for 100+ transactions)
+# Send ETH to the relayer address on Base network
+```
+
+### "Transaction reverted"
+
+**Error:**
+```
+{"error": "Transaction reverted", "tx_hash": "0x..."}
+```
+
+**Causes:**
+1. Authorization expired (`validBefore` timestamp passed)
+2. Nonce already used (each authorization can only be used once)
+3. Insufficient USDC balance in payer's wallet
+
+**Solution:**
+```bash
+# Check the transaction on BaseScan
+# https://basescan.org/tx/YOUR_TX_HASH
+
+# If authorization expired, user must retry (creates new authorization)
+# If nonce used, this authorization was already executed
+```
+
+### "Authorization not yet valid"
+
+**Error:**
+```
+{"error": "Authorization not yet valid (validAfter: 1769918598)"}
+```
+
+**Cause:** The `validAfter` timestamp is in the future.
+
+**Solution:** Wait until the timestamp passes, or have the client regenerate the authorization.
+
+### Relayer wallet not configured
+
+**Symptoms:**
+- Payment returns success with `"mock": true`
+- No actual transfer happens
+- Logs show "Mock mode: simulating successful transfer"
+
+**Cause:** `RELAYER_PRIVATE_KEY` not set in `.env`
+
+**Solution:**
+```bash
+# Generate a new relayer wallet
+node -e "const w = require('ethers').Wallet.createRandom(); console.log('Address:', w.address, '\nPrivate Key:', w.privateKey)"
+
+# Add to backend/.env
+RELAYER_PRIVATE_KEY=0x...
+
+# Fund with ETH on Base and restart backend
 ```
 
 ---
@@ -565,38 +655,30 @@ uvicorn src.main:app --host 0.0.0.0 --port 8402 --reload
 
 ## clawd-wallet Integration Issues
 
-### Wallet not making onchain transfers
+### Payment returns success but nothing happens
 
 **Symptoms:**
-- Payment "succeeds" but no blockchain transaction
-- Balance doesn't change
-- No tx_hash in response
+- `x402_payment_request` returns success
+- No transaction on blockchain
+- Balance unchanged
 
-**Debugging:**
+**Cause:** This usually means the payment endpoint returned 200 without executing the relayer (e.g., mock mode or configuration issue).
+
+**Solution:**
 ```bash
-# Check if wallet has ETH for gas
-node -e "
-const { ethers } = require('ethers');
-const p = new ethers.JsonRpcProvider('https://mainnet.base.org');
-p.getBalance('0x10c4B8A12604a79b9f5534Cfdd763c3182C8EFd4').then(b =>
-  console.log('ETH balance:', ethers.formatEther(b))
-);
-"
+# Check backend logs for what happened
+tail -50 /tmp/backend.log
 
-# Check USDC balance
-# Use x402_check_balance tool or check on basescan.org
+# Check if relayer is in mock mode
+grep RELAYER_PRIVATE_KEY backend/.env
+# If empty, relayer runs in mock mode
 ```
-
-**Common causes:**
-1. No ETH for gas (see "insufficient funds" error above)
-2. Address checksum mismatch (see "bad address checksum" above)
-3. Wrong HTTP method (see "x402 payment returns success" above)
 
 ### Verifying successful payment
 
 After a payment succeeds, verify on chain:
 ```bash
-# Check transaction on Base
+# Check transaction on BaseScan
 # https://basescan.org/tx/YOUR_TX_HASH
 
 # Check wallet balances changed
@@ -604,17 +686,20 @@ After a payment succeeds, verify on chain:
 # Treasury wallet should have more USDC
 ```
 
-### Complete x402 payment flow
+### Complete x402 Payment Flow (EIP-3009)
 
 For reference, the successful flow is:
 
 1. **Initiate purchase** → Backend returns `purchase_id` and payment details
-2. **Request payment endpoint** (GET) → Backend returns 402 with `WWW-Authenticate` header
-3. **clawd-wallet parses 402** → Extracts recipient, amount, nonce
-4. **On-chain USDC transfer** → Wallet sends real USDC, gets tx_hash
-5. **Retry with Authorization header** → Include tx_hash for verification
-6. **Backend verifies onchain** → Checks tx_hash on Base blockchain
-7. **Domain registered** → Porkbun API called, domain added to your account
+2. **Request payment endpoint** (GET) → Backend returns 402 with x402 JSON body
+3. **clawd-wallet parses 402** → Extracts payTo, amount, asset info
+4. **clawd-wallet signs EIP-3009 authorization** → Off-chain signature, no gas needed
+5. **Retry with X-PAYMENT header** → Base64-encoded authorization + signature
+6. **Backend relayer executes transfer** → Calls `transferWithAuthorization` on USDC
+7. **Backend waits for confirmation** → Ensures transaction is mined
+8. **Domain registered** → Porkbun API called, domain linked to payer's wallet
+
+**Key difference from simple transfers:** The client does NOT execute an onchain transaction. They sign an authorization that the server's relayer executes. This enables gasless payments for users.
 
 ---
 
