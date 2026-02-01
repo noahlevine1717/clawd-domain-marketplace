@@ -24,6 +24,63 @@ A CLI-native domain registration marketplace that enables purchasing domains wit
 - **Includes clawd-wallet**: Bundled as a git submodule for seamless USDC payments and wallet management
 - **Security Hardened**: Rate limiting, CORS protection, input validation, error sanitization
 
+## New User Quick Start (5 minutes)
+
+Get from zero to purchasing domains with Claude Code:
+
+### 1. Install clawd-wallet
+
+```bash
+npm install -g @clawd/x402-wallet-mcp
+clawd init
+clawd install
+```
+
+### 2. Fund your wallet
+
+```bash
+# Get your wallet address
+clawd status
+
+# Send USDC on Base network to your address
+# Minimum ~$5-10 for a .xyz domain
+```
+
+### 3. Install clawd-domain-marketplace
+
+```bash
+git clone --recurse-submodules https://github.com/noahlevine1717/clawd-domain-marketplace.git
+cd clawd-domain-marketplace/mcp-server
+npm install && npm run build
+```
+
+### 4. Add to Claude Code config
+
+Edit `~/.claude.json` and add to `mcpServers`:
+
+```json
+{
+  "mcpServers": {
+    "clawd-domains": {
+      "command": "node",
+      "args": ["/full/path/to/clawd-domain-marketplace/mcp-server/dist/index.js"],
+      "env": {
+        "CLAWD_BACKEND_URL": "https://clawd-domain-marketplace-production.up.railway.app"
+      }
+    }
+  }
+}
+```
+
+### 5. Restart Claude Code and purchase
+
+```
+You: "Search for available .xyz domains like myproject"
+You: "Buy myproject.xyz"
+```
+
+---
+
 ## Architecture
 
 ```
