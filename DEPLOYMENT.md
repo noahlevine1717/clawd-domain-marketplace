@@ -137,6 +137,7 @@ In Railway dashboard (https://railway.app) or via CLI:
 railway variables set PORKBUN_API_KEY=pk1_YOUR_KEY
 railway variables set PORKBUN_SECRET=sk1_YOUR_SECRET
 railway variables set TREASURY_ADDRESS=0xYOUR_WALLET
+railway variables set RELAYER_PRIVATE_KEY=0xYOUR_RELAYER_KEY
 
 # Security settings
 railway variables set SKIP_PAYMENT_VERIFICATION=false
@@ -145,6 +146,9 @@ railway variables set ENVIRONMENT=production
 # CORS (replace with your actual domain)
 railway variables set ALLOWED_ORIGINS=https://yourdomain.com
 ```
+
+> **Generate relayer key:** `node -e "const w=require('ethers').Wallet.createRandom();console.log(w.privateKey)"`
+> Then fund the relayer address with ~0.01 ETH on Base.
 
 ### Step 5: Create railway.json
 
@@ -225,12 +229,19 @@ clawd-domain-marketplace/
 | `PORKBUN_API_KEY` | Yes | Your Porkbun API key |
 | `PORKBUN_SECRET` | Yes | Your Porkbun API secret |
 | `TREASURY_ADDRESS` | Yes | Your wallet to receive payments |
+| `RELAYER_PRIVATE_KEY` | Yes | Private key for EIP-3009 relayer (pays gas) |
 | `PUBLIC_URL` | Yes | Your Railway public URL |
 | `SKIP_PAYMENT_VERIFICATION` | Yes | Must be `false` in production |
 | `DATABASE_URL` | Recommended | PostgreSQL connection string (auto-set by Railway) |
 | `ALLOWED_ORIGINS` | Recommended | Comma-separated allowed CORS origins |
 | `ENVIRONMENT` | Recommended | Set to `production` |
 | `PORT` | Auto | Railway sets this automatically |
+
+> **Relayer Setup:** The relayer wallet pays gas fees for EIP-3009 transfers. Generate one with:
+> ```bash
+> node -e "const w=require('ethers').Wallet.createRandom();console.log(w.privateKey)"
+> ```
+> Fund it with ~0.01 ETH on Base network.
 
 ### Monitoring on Railway
 
