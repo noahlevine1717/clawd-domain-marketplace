@@ -9,23 +9,30 @@ This guide is for third parties who want to use the Clawd Domain Marketplace to 
 ## Overview
 
 ```
-Your Wallet (USDC on Base)
-        │
-        ▼
-┌───────────────────┐     x402 Payment     ┌─────────────────────┐
-│  clawd-wallet     │ ──────────────────▶  │  Marketplace        │
-│  (MCP Server)     │                      │  Backend            │
-└───────────────────┘                      └─────────────────────┘
-        │                                           │
-        │                                           ▼
-        │                                  ┌─────────────────────┐
-        │                                  │  Porkbun API        │
-        │                                  │  (Operator Account) │
-        │                                  └─────────────────────┘
-        │
-        ▼
-   You manage your domain via wallet signature
-   (DNS, nameservers, transfer auth code)
+┌─────────────────────────────────────────────────────────────┐
+│                     Your Claude Session                      │
+│                                                              │
+│  ┌─────────────────┐         ┌─────────────────┐            │
+│  │  clawd-domains  │         │  clawd-wallet   │            │
+│  │  (search, DNS,  │         │  (USDC balance, │            │
+│  │   purchase)     │         │   x402 payment) │            │
+│  └────────┬────────┘         └────────┬────────┘            │
+└───────────┼────────────────────────────┼────────────────────┘
+            │                            │
+            └──────────┬─────────────────┘
+                       ▼
+              ┌─────────────────────┐
+              │  Marketplace        │
+              │  Backend            │
+              │  (Operator runs)    │
+              └─────────┬───────────┘
+                        │
+            ┌───────────┴───────────┐
+            ▼                       ▼
+   ┌─────────────────┐     ┌─────────────────┐
+   │  Porkbun API    │     │  Base Network   │
+   │  (Registration) │     │  (USDC Payment) │
+   └─────────────────┘     └─────────────────┘
 ```
 
 **Key Points:**
@@ -49,19 +56,23 @@ Your Wallet (USDC on Base)
 
 ## Step 1: Clone and Build
 
-clawd-wallet is included as a submodule in the marketplace repository.
+The marketplace repository includes everything you need:
+- **clawd-domains** (mcp-server/) - for searching and purchasing domains
+- **clawd-wallet** (submodule) - for USDC payments
 
 ```bash
 # Clone the marketplace with submodules
 git clone --recurse-submodules https://github.com/noahlevine1717/clawd-domain-marketplace.git
-cd clawd-domain-marketplace/clawd-wallet
+cd clawd-domain-marketplace
 
 # If you already cloned without --recurse-submodules:
 # git submodule update --init --recursive
 
-# Install dependencies and build
-npm install
-npm run build
+# Build clawd-domains MCP server
+cd mcp-server && npm install && npm run build
+
+# Build clawd-wallet MCP server
+cd ../clawd-wallet && npm install && npm run build
 ```
 
 ---
@@ -82,13 +93,22 @@ Add the clawd-wallet MCP server to your Claude Code configuration.
 
 First, get the absolute path:
 ```bash
-cd clawd-domain-marketplace/clawd-wallet && pwd
-# Copy the output (e.g., /Users/you/clawd-domain-marketplace/clawd-wallet)
+cd clawd-domain-marketplace && pwd
+# Copy the output (e.g., /Users/you/clawd-domain-marketplace)
 ```
+
+You need **both** MCP servers configured:
 
 ```json
 {
   "mcpServers": {
+    "clawd-domains": {
+      "command": "node",
+      "args": ["/YOUR/PATH/clawd-domain-marketplace/mcp-server/dist/index.js"],
+      "env": {
+        "CLAWD_BACKEND_URL": "https://marketplace-backend-url.com"
+      }
+    },
     "clawd-wallet": {
       "command": "node",
       "args": ["/YOUR/PATH/clawd-domain-marketplace/clawd-wallet/dist/index.js"],
@@ -103,6 +123,7 @@ cd clawd-domain-marketplace/clawd-wallet && pwd
 **Important:**
 - Replace `/YOUR/PATH` with your actual path from the `pwd` command
 - Replace `https://marketplace-backend-url.com` with the URL provided by the marketplace operator
+- Both servers must point to the same backend URL
 
 ### Restart Claude Code
 
@@ -260,10 +281,11 @@ The marketplace backend is not responding or rejecting payments. Verify:
 
 ### MCP Server Not Loading
 
-1. Check the path in your config is absolute (starts with `/`)
-2. Ensure `npm run build` completed without errors
+1. Check the paths in your config are absolute (start with `/`)
+2. Ensure `npm run build` completed without errors for **both** mcp-server/ and clawd-wallet/
 3. Restart Claude Code completely
 4. Check Claude Code logs for errors
+5. Verify both `clawd-domains` and `clawd-wallet` appear in your MCP config
 
 ### Domain Not Showing in List
 
