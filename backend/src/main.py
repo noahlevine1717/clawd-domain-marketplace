@@ -19,6 +19,7 @@ from slowapi.errors import RateLimitExceeded
 from . import config
 from .porkbun import porkbun
 from .payments import verifier
+from .relayer import relayer
 from . import database as db
 
 # Configure logging
@@ -309,8 +310,8 @@ async def initiate_purchase(req: PurchaseRequest, request: Request):
     )
 
 
-# x402 payment endpoint
-@app.get("/purchase/pay/{purchase_id}")
+# x402 payment endpoint - supports both GET and POST for compatibility
+@app.api_route("/purchase/pay/{purchase_id}", methods=["GET", "POST"])
 @limiter.limit(config.RATE_LIMIT_PURCHASE)
 async def x402_payment(purchase_id: str, request: Request):
     """Handle x402 payment flow - returns 402 or processes payment."""
@@ -325,33 +326,155 @@ async def x402_payment(purchase_id: str, request: Request):
     if purchase["status"] not in ["pending", "awaiting_payment"]:
         raise HTTPException(400, f"Purchase status is {purchase['status']}")
 
-    auth_header = request.headers.get("authorization", "")
+    # Check for X-PAYMENT header (x402 protocol) or Authorization header (legacy)
+    payment_header = request.headers.get("x-payment", "") or request.headers.get("authorization", "")
 
-    if auth_header.startswith("x402 "):
+    if payment_header:
         await db.update_purchase(purchase_id, {"status": "processing"})
 
+        # Parse payment header - try JSON first (X-PAYMENT), then legacy format
         params = {}
-        matches = re.findall(r'(\w+)="([^"]+)"', auth_header)
-        for key, value in matches:
-            params[key] = value
+        tx_hash = ""
+        payer = "unknown"
+        auth = {}
+        signature = ""
 
-        if params.get("recipient", "").lower() != config.TREASURY_ADDRESS.lower():
-            await db.update_purchase(purchase_id, {"status": "payment_failed"})
-            return JSONResponse(status_code=400, content={"error": "Invalid recipient address"})
+        try:
+            # Try base64-decoded JSON (x402 X-PAYMENT format)
+            import base64
+            decoded = base64.b64decode(payment_header).decode('utf-8')
+            payment_data = json.loads(decoded)
+            logger.info(f"Decoded X-PAYMENT payload keys: {list(payment_data.keys())}")
+            payload = payment_data.get("payload", {})
+            logger.info(f"Payload keys: {list(payload.keys()) if isinstance(payload, dict) else 'not a dict'}")
 
-        expected_nonce = purchase.get("nonce", f"clawd-{purchase_id}")
-        if params.get("nonce") != expected_nonce:
-            await db.update_purchase(purchase_id, {"status": "payment_failed"})
-            return JSONResponse(status_code=400, content={"error": "Invalid nonce"})
+            # Log full payload for debugging
+            logger.info(f"Full payload: {json.dumps(payload)[:500]}")
 
-        payer = params.get("payer", "unknown")
-        signature = params.get("signature", "")
-        tx_hash = params.get("tx_hash", "")
+            # Try multiple paths for transaction hash
+            auth = payload.get("authorization", {})
+            if isinstance(auth, str):
+                try:
+                    auth = json.loads(auth)
+                except:
+                    auth = {}
+            logger.info(f"Authorization keys: {list(auth.keys()) if isinstance(auth, dict) else 'not a dict'}")
+
+            # Check for direct tx_hash first
+            tx_hash = (
+                payload.get("transactionHash", "") or
+                payload.get("txHash", "") or
+                payload.get("transaction", {}).get("hash", "") if isinstance(payload.get("transaction"), dict) else "" or
+                payment_data.get("transactionHash", "")
+            )
+
+            # Get signature for EIP-3009 flow
+            signature = payload.get("signature", "")
+
+            # Determine payer from authorization or payload
+            payer = auth.get("from", "") or payload.get("payer", "") or payload.get("address", "") or "unknown"
+            logger.info(f"Parsed X-PAYMENT header: tx_hash={tx_hash}, payer={payer}, has_auth={bool(auth)}, has_sig={bool(signature)}")
+        except Exception:
+            try:
+                # Try direct JSON
+                payment_data = json.loads(payment_header)
+                tx_hash = payment_data.get("tx_hash", "") or payment_data.get("transactionHash", "")
+                payer = payment_data.get("payer", "unknown")
+                logger.info(f"Parsed JSON payment header: tx_hash={tx_hash}, payer={payer}")
+            except Exception:
+                # Legacy format: x402 key="value" pairs
+                if payment_header.startswith("x402 "):
+                    matches = re.findall(r'(\w+)="([^"]+)"', payment_header)
+                    for key, value in matches:
+                        params[key] = value
+                    tx_hash = params.get("tx_hash", "")
+                    payer = params.get("payer", "unknown")
+                    logger.info(f"Parsed legacy x402 header: tx_hash={tx_hash}, payer={payer}")
 
         # CRITICAL: Verify payment on-chain before registering domain
         if not tx_hash:
-            await db.update_purchase(purchase_id, {"status": "payment_failed"})
-            return JSONResponse(status_code=400, content={"error": "Missing tx_hash in x402 Authorization header"})
+            # Check if we have EIP-3009 authorization to execute
+            if auth and signature and auth.get("from") and auth.get("to"):
+                logger.info(f"Executing EIP-3009 transfer for {purchase['domain']}")
+
+                # Execute the transfer via relayer
+                result = await relayer.execute_transfer(
+                    authorization=auth,
+                    signature=signature,
+                    expected_recipient=config.TREASURY_ADDRESS,
+                    expected_amount=float(purchase["amount"])
+                )
+
+                if not result.get("verified"):
+                    await db.update_purchase(purchase_id, {"status": "awaiting_payment"})
+                    logger.error(f"EIP-3009 execution failed: {result.get('error')}")
+                    return JSONResponse(
+                        status_code=400,
+                        content={"error": f"Payment execution failed: {result.get('error', 'Unknown error')}. Please retry."}
+                    )
+
+                # Transfer succeeded - use the tx_hash from execution
+                tx_hash = result.get("tx_hash", "")
+                payer = result.get("sender", payer)
+                logger.info(f"EIP-3009 transfer successful: tx_hash={tx_hash}, payer={payer}")
+
+                # Skip additional verification - relayer already confirmed the transaction
+                verification = {"verified": True, "sender": payer, "relayer_executed": True}
+                verified_payer = payer
+                await db.update_purchase(purchase_id, {"payer": verified_payer, "tx_hash": tx_hash})
+
+                # Jump directly to domain registration
+                try:
+                    reg_result = await porkbun.register_domain(
+                        domain=purchase["domain"],
+                        years=purchase["years"],
+                        registrant=purchase.get("registrant"),
+                    )
+
+                    if reg_result.get("status") != "SUCCESS":
+                        await db.update_purchase(purchase_id, {"status": "registration_failed"})
+                        return JSONResponse(
+                            status_code=500,
+                            content={"error": "Domain registration failed. Please contact support."}
+                        )
+
+                    await db.update_purchase(purchase_id, {"status": "completed"})
+
+                    domain_info = {
+                        "domain_name": purchase["domain"],
+                        "expires_at": reg_result.get("expiration", "2027-01-28"),
+                        "nameservers": reg_result.get("ns", ["ns1.porkbun.com", "ns2.porkbun.com"]),
+                        "registered_at": datetime.utcnow().isoformat(),
+                        "owner_wallet": verified_payer,
+                        "registrant": purchase.get("registrant", {}),
+                    }
+                    await db.create_domain(domain_info)
+
+                    return JSONResponse({
+                        "status": "success",
+                        "message": f"Domain {purchase['domain']} registered successfully!",
+                        "domain": domain_info,
+                        "tx_hash": tx_hash,
+                        "ownership": {
+                            "legal_owner": "Customer (registrant info in WHOIS)",
+                            "dns_control": "Full access via this API",
+                            "transfer_rights": "Can transfer anytime with auth code",
+                        }
+                    })
+
+                except Exception as e:
+                    logger.error(f"Registration error for {purchase['domain']}: {e}")
+                    await db.update_purchase(purchase_id, {"status": "error"})
+                    return JSONResponse(
+                        status_code=500,
+                        content={"error": "An error occurred during registration. Please try again."}
+                    )
+
+            else:
+                # No tx_hash and no EIP-3009 authorization - can't process
+                await db.update_purchase(purchase_id, {"status": "awaiting_payment"})
+                logger.error(f"No tx_hash or authorization in payment header: {payment_header[:100]}")
+                return JSONResponse(status_code=400, content={"error": "Missing transaction hash or authorization in payment header. Please retry."})
 
         if config.SKIP_PAYMENT_VERIFICATION:
             if config.ENVIRONMENT == "production":
@@ -377,7 +500,7 @@ async def x402_payment(purchase_id: str, request: Request):
 
         # Payment verified - use the actual sender from blockchain
         verified_payer = verification.get("sender", payer)
-        await db.update_purchase(purchase_id, {"payer": verified_payer, "signature": signature, "tx_hash": tx_hash})
+        await db.update_purchase(purchase_id, {"payer": verified_payer, "tx_hash": tx_hash})
 
         try:
             reg_result = await porkbun.register_domain(
@@ -425,32 +548,49 @@ async def x402_payment(purchase_id: str, request: Request):
                 content={"error": "An error occurred during registration. Please try again."}
             )
 
-    # No payment proof - return 402
+    # No payment proof - return 402 with x402 protocol format
     await db.update_purchase(purchase_id, {"status": "awaiting_payment"})
 
-    amount_str = f"{float(purchase['amount']):.2f}"
-    nonce = f"clawd-{purchase_id}"
-    await db.update_purchase(purchase_id, {"nonce": nonce})
+    # Convert dollars to micro-units (6 decimals for USDC)
+    amount_micro = str(int(float(purchase['amount']) * 1_000_000))
+    description = f"Domain: {purchase['domain']} ({purchase['years']} year)"
+    resource_url = f"{config.PUBLIC_URL}/purchase/pay/{purchase_id}"
 
-    www_auth = (
-        f'x402 recipient="{config.TREASURY_ADDRESS}", '
-        f'amount="{amount_str}", '
-        f'currency="USDC", '
-        f'nonce="{nonce}", '
-        f'description="Domain: {purchase["domain"]} ({purchase["years"]} year)"'
-    )
+    # USDC contract address on Base
+    USDC_BASE_ADDRESS = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
 
-    return Response(
+    x402_response = {
+        "x402Version": 1,
+        "error": "X-PAYMENT header is required",
+        "accepts": [
+            {
+                "scheme": "exact",
+                "network": "base",
+                "maxAmountRequired": amount_micro,
+                "resource": resource_url,
+                "description": description,
+                "mimeType": "application/json",
+                "payTo": config.TREASURY_ADDRESS,
+                "maxTimeoutSeconds": 300,
+                "asset": USDC_BASE_ADDRESS,
+                "outputSchema": {
+                    "input": {
+                        "type": "http",
+                        "method": "POST",
+                        "discoverable": True
+                    }
+                },
+                "extra": {
+                    "name": "USD Coin",
+                    "version": "2"
+                }
+            }
+        ]
+    }
+
+    return JSONResponse(
         status_code=402,
-        content=json.dumps({
-            "error": "Payment Required",
-            "domain": purchase["domain"],
-            "amount": amount_str,
-            "currency": "USDC",
-            "recipient": config.TREASURY_ADDRESS,
-        }),
-        media_type="application/json",
-        headers={"WWW-Authenticate": www_auth}
+        content=x402_response
     )
 
 
@@ -577,6 +717,22 @@ async def confirm_purchase(req: ConfirmRequest):
             error="An error occurred during registration",
             mock_mode=config.MOCK_MODE,
         )
+
+
+# Debug endpoint to check purchase state
+@app.get("/debug/purchase/{purchase_id}")
+async def debug_purchase(purchase_id: str):
+    """Debug endpoint to check purchase status."""
+    purchase = await db.get_purchase(purchase_id)
+    if not purchase:
+        return {"id": purchase_id, "status": "not_found"}
+    return {
+        "id": purchase_id,
+        "domain": purchase.get("domain"),
+        "status": purchase.get("status"),
+        "created_at": purchase.get("created_at"),
+        "amount": purchase.get("amount"),
+    }
 
 
 # List domains for a specific wallet

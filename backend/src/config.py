@@ -29,6 +29,11 @@ TREASURY_ADDRESS = os.getenv("TREASURY_ADDRESS", "0x742D35cc6634C0532925a3B844bc
 BASE_RPC_URL = os.getenv("BASE_RPC_URL", "https://mainnet.base.org")
 USDC_CONTRACT = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"  # USDC on Base
 
+# Relayer wallet for executing EIP-3009 transfers (pays gas)
+RELAYER_PRIVATE_KEY = os.getenv("RELAYER_PRIVATE_KEY", "")
+if IS_PRODUCTION and not RELAYER_PRIVATE_KEY:
+    raise RuntimeError("RELAYER_PRIVATE_KEY is required in production for payment execution")
+
 # CORS - specific origins for security
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:8402").split(",")
 if IS_PRODUCTION and "*" in ALLOWED_ORIGINS:
